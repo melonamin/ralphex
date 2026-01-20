@@ -226,3 +226,78 @@ func TestCodexExecutor_filterOutput_withDebug(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Actual content", got)
 }
+
+func TestCodexExecutor_isNoise_headerPrefixes(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"OpenAI Codex v1.2.3", true},
+		{"model: gpt-5", true},
+		{"workdir: /tmp/test", true},
+		{"timeout: 3600", true},
+		{"sandbox: read-only", true},
+		{"Running: test command", true},
+		{"Executing: some action", true},
+		{"Reading: file.go", true},
+		{"─────────────────", true},
+		{"│ some box content", true},
+		{"┌ box top", true},
+		{"└ box bottom", true},
+		{"Regular content", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.line, func(t *testing.T) {
+			e := &CodexExecutor{}
+			got := e.isNoise(tc.line)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestCodexExecutor_filterOutput_stripsBold(t *testing.T) {
+	e := &CodexExecutor{}
+	input := "This is **bold text** and **another bold**"
+	got, err := e.filterOutput(input)
+	require.NoError(t, err)
+	assert.Equal(t, "This is bold text and another bold", got)
+}
+
+func TestCodexExecutor_filterOutput_fullReviewSection(t *testing.T) {
+	e := &CodexExecutor{}
+	input := "OpenAI Codex\nmodel: gpt-5\nFull review comments:\nIssue 1: bug\nIssue 2: problem"
+	got, err := e.filterOutput(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Issue 1: bug\nIssue 2: problem", got)
+}
+
+func TestCodexExecutor_filterOutput_deduplicates(t *testing.T) {
+	e := &CodexExecutor{}
+	input := "Line 1\nLine 1\nLine 2\nLine 2\nLine 3"
+	got, err := e.filterOutput(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Line 1\nLine 2\nLine 3", got)
+}
+
+func TestStripBold(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"no bold", "plain text", "plain text"},
+		{"single bold", "**bold** text", "bold text"},
+		{"multiple bold", "**one** and **two**", "one and two"},
+		{"nested in text", "before **middle** after", "before middle after"},
+		{"unclosed bold", "**unclosed text", "**unclosed text"},
+		{"empty bold", "**** empty", " empty"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := stripBold(tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

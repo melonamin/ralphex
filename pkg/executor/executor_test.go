@@ -170,9 +170,9 @@ func TestClaudeExecutor_parseStream(t *testing.T) {
 			wantSignal: "",
 		},
 		{
-			name:       "invalid json ignored",
+			name:       "non-json lines printed as-is",
 			input:      "not json\n" + `{"type":"content_block_delta","delta":{"type":"text_delta","text":"valid"}}`,
-			wantOutput: "valid",
+			wantOutput: "not json\nvalid",
 			wantSignal: "",
 		},
 		{
@@ -218,13 +218,13 @@ func TestClaudeExecutor_parseStream_withHandler(t *testing.T) {
 }
 
 func TestClaudeExecutor_parseStream_withDebug(t *testing.T) {
-	// invalid json line should be skipped with debug message
+	// non-json lines should be printed as-is (with debug message)
 	input := "not json\n" + `{"type":"content_block_delta","delta":{"type":"text_delta","text":"valid"}}`
 
 	e := &ClaudeExecutor{Debug: true}
 	result := e.parseStream(strings.NewReader(input))
 
-	assert.Equal(t, "valid", result.Output)
+	assert.Equal(t, "not json\nvalid", result.Output)
 }
 
 func TestClaudeExecutor_extractText(t *testing.T) {
@@ -322,6 +322,53 @@ func TestDetectSignal(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.text, func(t *testing.T) {
 			got := detectSignal(tc.text)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestFilterEnv(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    []string
+		remove []string
+		want   []string
+	}{
+		{
+			name:   "removes single key",
+			env:    []string{"FOO=bar", "BAZ=qux", "ANTHROPIC_API_KEY=secret"},
+			remove: []string{"ANTHROPIC_API_KEY"},
+			want:   []string{"FOO=bar", "BAZ=qux"},
+		},
+		{
+			name:   "removes multiple keys",
+			env:    []string{"A=1", "B=2", "C=3"},
+			remove: []string{"A", "C"},
+			want:   []string{"B=2"},
+		},
+		{
+			name:   "no match returns original",
+			env:    []string{"FOO=bar", "BAZ=qux"},
+			remove: []string{"NONEXISTENT"},
+			want:   []string{"FOO=bar", "BAZ=qux"},
+		},
+		{
+			name:   "empty env returns empty",
+			env:    []string{},
+			remove: []string{"FOO"},
+			want:   []string{},
+		},
+		{
+			name:   "partial key match not removed",
+			env:    []string{"ANTHROPIC_API_KEY_OLD=secret", "ANTHROPIC_API_KEY=new"},
+			remove: []string{"ANTHROPIC_API_KEY"},
+			want:   []string{"ANTHROPIC_API_KEY_OLD=secret"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := filterEnv(tc.env, tc.remove...)
 			assert.Equal(t, tc.want, got)
 		})
 	}

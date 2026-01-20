@@ -100,15 +100,113 @@ func (e *CodexExecutor) callHandler(output string) {
 	}
 }
 
-// filterOutput removes codex noise from output.
+// codex output header prefixes to filter
+var codexHeaderPrefixes = []string{
+	"OpenAI Codex",
+	"model:",
+	"workdir:",
+	"timeout:",
+	"sandbox:",
+	"project_doc:",
+	"model_reasoning_effort:",
+	"stream_idle_timeout_ms:",
+	"Running:",
+	"Executing:",
+	"Reading:",
+	"─", // box drawing chars
+	"│",
+	"┌",
+	"└",
+	"├",
+	"┬",
+	"┴",
+	"┼",
+}
+
+// codex noise patterns
+var codexNoisePatterns = []string{
+	"Thinking...",
+	"Processing...",
+	"Reading files...",
+	"Analyzing...",
+	"[spinner]",
+	"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", // spinner chars
+}
+
+// filterState tracks state machine for filtering
+type filterState struct {
+	inHeader     bool
+	inFullReview bool
+	lastLine     string
+}
+
+// isNoise returns true if line should be filtered out.
+// Uses state machine to detect headers and sections like ralph.py.
+func (e *CodexExecutor) isNoise(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false // keep blank lines within content
+	}
+
+	// check header prefixes
+	for _, prefix := range codexHeaderPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+
+	// check noise patterns
+	for _, pattern := range codexNoisePatterns {
+		if strings.Contains(line, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// filterOutput removes codex noise from output with state machine.
 func (e *CodexExecutor) filterOutput(output string) (string, error) {
 	var lines []string
 	scanner := bufio.NewScanner(strings.NewReader(output))
+	state := &filterState{inHeader: true}
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
 
-		// skip common noise patterns
+		// skip empty lines at start (before any content)
+		if state.inHeader && trimmed == "" {
+			continue
+		}
+
+		// check for "Full review comments:" to enter review section
+		if strings.HasPrefix(trimmed, "Full review comments:") {
+			state.inFullReview = true
+			state.inHeader = false
+			continue // skip the header line itself
+		}
+
+		// check for priority findings which signals real content
+		if strings.HasPrefix(trimmed, "- [P") {
+			state.inHeader = false
+		}
+
+		// once in review section, keep all lines
+		if state.inFullReview {
+			// strip bold markers **text**
+			cleaned := stripBold(line)
+			// deduplicate consecutive identical lines (but keep blank lines)
+			if cleaned != state.lastLine || trimmed == "" {
+				lines = append(lines, cleaned)
+				if trimmed != "" {
+					state.lastLine = cleaned
+				}
+			}
+			continue
+		}
+
+		// filter noise patterns and headers
 		if e.isNoise(line) {
 			if e.Debug {
 				fmt.Printf("[debug] filtered: %s\n", line)
@@ -116,7 +214,28 @@ func (e *CodexExecutor) filterOutput(output string) (string, error) {
 			continue
 		}
 
-		lines = append(lines, line)
+		// preserve blank lines within content (after header)
+		if trimmed == "" && !state.inHeader {
+			lines = append(lines, line)
+			continue
+		}
+
+		// once we get real content, we're past the header
+		if trimmed != "" && !state.inHeader {
+			// strip bold markers
+			cleaned := stripBold(line)
+			// deduplicate
+			if cleaned != state.lastLine {
+				lines = append(lines, cleaned)
+				state.lastLine = cleaned
+			}
+		} else if trimmed != "" {
+			// first real content line ends header
+			state.inHeader = false
+			cleaned := stripBold(line)
+			lines = append(lines, cleaned)
+			state.lastLine = cleaned
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -126,29 +245,21 @@ func (e *CodexExecutor) filterOutput(output string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// isNoise returns true if line should be filtered out.
-func (e *CodexExecutor) isNoise(line string) bool {
-	// skip empty lines at start/end (will be trimmed)
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return false // keep blank lines within content
-	}
-
-	// skip progress indicators
-	noisePatterns := []string{
-		"Thinking...",
-		"Processing...",
-		"Reading files...",
-		"Analyzing...",
-		"[spinner]",
-		"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", // spinner chars
-	}
-
-	for _, pattern := range noisePatterns {
-		if strings.Contains(line, pattern) {
-			return true
+// stripBold removes markdown bold markers (**text**) from text.
+func stripBold(s string) string {
+	// replace **text** with text
+	result := s
+	for {
+		start := strings.Index(result, "**")
+		if start == -1 {
+			break
 		}
+		end := strings.Index(result[start+2:], "**")
+		if end == -1 {
+			break
+		}
+		// remove both markers
+		result = result[:start] + result[start+2:start+2+end] + result[start+2+end+2:]
 	}
-
-	return false
+	return result
 }

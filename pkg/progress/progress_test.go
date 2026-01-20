@@ -303,3 +303,79 @@ func TestGetProgressFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapText(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		width int
+		want  string
+	}{
+		{
+			name:  "no wrap needed",
+			text:  "short text",
+			width: 80,
+			want:  "short text",
+		},
+		{
+			name:  "wraps at word boundary",
+			text:  "this is a longer text that needs wrapping",
+			width: 20,
+			want:  "this is a longer\ntext that needs\nwrapping",
+		},
+		{
+			name:  "single long word",
+			text:  "superlongwordthatcannotbewrapped",
+			width: 10,
+			want:  "superlongwordthatcannotbewrapped",
+		},
+		{
+			name:  "zero width returns original",
+			text:  "test text",
+			width: 0,
+			want:  "test text",
+		},
+		{
+			name:  "empty text",
+			text:  "",
+			width: 40,
+			want:  "",
+		},
+		{
+			name:  "exact fit",
+			text:  "exact fit",
+			width: 9,
+			want:  "exact fit",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := wrapText(tc.text, tc.width)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestGetTerminalWidth(t *testing.T) {
+	// test with COLUMNS env var
+	t.Run("uses COLUMNS env var", func(t *testing.T) {
+		t.Setenv("COLUMNS", "100")
+		width := getTerminalWidth()
+		// should return 100 - 20 = 80
+		assert.Equal(t, 80, width)
+	})
+
+	t.Run("respects min width", func(t *testing.T) {
+		t.Setenv("COLUMNS", "50") // 50 - 20 = 30, but min is 40
+		width := getTerminalWidth()
+		assert.Equal(t, 40, width)
+	})
+
+	t.Run("invalid COLUMNS", func(t *testing.T) {
+		t.Setenv("COLUMNS", "invalid")
+		width := getTerminalWidth()
+		// should fall back to default or syscall result
+		assert.Positive(t, width)
+	})
+}

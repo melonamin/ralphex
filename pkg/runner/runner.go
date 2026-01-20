@@ -6,11 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/umputun/ralphex/pkg/executor"
 	"github.com/umputun/ralphex/pkg/progress"
 )
+
+// iterationDelay is the pause between iterations to allow system to settle.
+const iterationDelay = 2 * time.Second
 
 // Mode represents the execution mode.
 type Mode string
@@ -235,6 +240,7 @@ func (r *Runner) runTaskPhase(ctx context.Context) error {
 			if retryCount < 1 {
 				r.log.Print("task failed, retrying...")
 				retryCount++
+				time.Sleep(iterationDelay)
 				continue
 			}
 			return errors.New("task execution failed after retry (FAILED signal received)")
@@ -242,6 +248,7 @@ func (r *Runner) runTaskPhase(ctx context.Context) error {
 
 		retryCount = 0
 		// continue with same prompt - it reads from plan file each time
+		time.Sleep(iterationDelay)
 	}
 
 	return fmt.Errorf("max iterations (%d) reached without completion", r.cfg.MaxIterations)
@@ -295,6 +302,7 @@ func (r *Runner) runClaudeReviewLoop(ctx context.Context) error {
 		}
 
 		r.log.Print("issues fixed, running another review iteration...")
+		time.Sleep(iterationDelay)
 	}
 
 	r.log.Print("max claude review iterations reached, continuing...")
@@ -342,6 +350,8 @@ func (r *Runner) runCodexLoop(ctx context.Context) error {
 			r.log.Print("codex review complete - no more findings")
 			return nil
 		}
+
+		time.Sleep(iterationDelay)
 	}
 
 	r.log.Print("max codex iterations reached, continuing to next phase...")
@@ -403,10 +413,17 @@ If Claude's arguments are invalid, explain why the issues still exist.`, basePro
 
 // hasUncompletedTasks checks if plan file has any uncompleted checkboxes.
 // Matches ralph.py's has_uncompleted_tasks exactly.
+// Checks both original path and completed/ subdirectory.
 func hasUncompletedTasks(planFile string) bool {
+	// try original path first
 	content, err := os.ReadFile(planFile) //nolint:gosec // planFile from CLI args
 	if err != nil {
-		return true // assume incomplete if can't read
+		// try completed/ subdirectory as fallback
+		completedPath := filepath.Join(filepath.Dir(planFile), "completed", filepath.Base(planFile))
+		content, err = os.ReadFile(completedPath) //nolint:gosec // planFile from CLI args
+		if err != nil {
+			return true // assume incomplete if can't read from either location
+		}
 	}
 
 	// look for uncompleted checkbox pattern: [ ] (not [x])

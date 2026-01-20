@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -30,6 +31,10 @@ type execCommandRunner struct{}
 
 func (r *execCommandRunner) Run(ctx context.Context, name string, args ...string) (io.Reader, func() error, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
+
+	// filter out ANTHROPIC_API_KEY from environment (claude uses different auth)
+	cmd.Env = filterEnv(os.Environ(), "ANTHROPIC_API_KEY")
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, nil, fmt.Errorf("create stdout pipe: %w", err)
@@ -40,6 +45,24 @@ func (r *execCommandRunner) Run(ctx context.Context, name string, args ...string
 		return nil, nil, fmt.Errorf("start command: %w", err)
 	}
 	return stdout, cmd.Wait, nil
+}
+
+// filterEnv returns a copy of env with specified keys removed.
+func filterEnv(env []string, keysToRemove ...string) []string {
+	result := make([]string, 0, len(env))
+	for _, e := range env {
+		skip := false
+		for _, key := range keysToRemove {
+			if strings.HasPrefix(e, key+"=") {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			result = append(result, e)
+		}
+	}
+	return result
 }
 
 // streamEvent represents a JSON event from claude CLI stream output.
@@ -124,8 +147,14 @@ func (e *ClaudeExecutor) parseStream(r io.Reader) Result {
 
 		var event streamEvent
 		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			// print non-JSON lines as-is (like ralph.py)
 			if e.Debug {
-				fmt.Printf("[debug] failed to parse JSON: %s\n", line)
+				fmt.Printf("[debug] non-JSON line: %s\n", line)
+			}
+			output.WriteString(line)
+			output.WriteString("\n")
+			if e.OutputHandler != nil {
+				e.OutputHandler(line + "\n")
 			}
 			continue
 		}

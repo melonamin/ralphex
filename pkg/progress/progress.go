@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/fatih/color"
+	"golang.org/x/term"
 )
 
 // Phase represents execution phase for color coding.
@@ -33,7 +35,7 @@ var (
 	codexColor     = color.New(color.FgMagenta)
 	warnColor      = color.New(color.FgYellow)
 	errorColor     = color.New(color.FgRed)
-	timestampColor = color.New(color.FgHiBlack)
+	timestampColor = color.New(color.FgWhite)
 )
 
 // phaseColors maps phases to their color functions.
@@ -115,10 +117,13 @@ func (l *Logger) SetPhase(phase Phase) {
 	l.phase = phase
 }
 
+// timestampFormat is the format for timestamps: YY-MM-DD HH:MM:SS
+const timestampFormat = "06-01-02 15:04:05"
+
 // Print writes a timestamped message to both file and stdout.
 func (l *Logger) Print(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("15:04:05")
+	timestamp := time.Now().Format(timestampFormat)
 
 	// write to file without color
 	l.writeFile("[%s] %s\n", timestamp, msg)
@@ -137,6 +142,69 @@ func (l *Logger) PrintRaw(format string, args ...any) {
 	l.writeStdout("%s", msg)
 }
 
+// getTerminalWidth returns terminal width, using COLUMNS env var or syscall.
+// Defaults to 80 if detection fails. Returns content width (total - 20 for timestamp).
+func getTerminalWidth() int {
+	const minWidth = 40
+
+	// try COLUMNS env var first
+	if cols := os.Getenv("COLUMNS"); cols != "" {
+		if w, err := strconv.Atoi(cols); err == nil && w > 0 {
+			contentWidth := w - 20 // leave room for timestamp prefix
+			if contentWidth < minWidth {
+				return minWidth
+			}
+			return contentWidth
+		}
+	}
+
+	// try terminal syscall
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		contentWidth := w - 20
+		if contentWidth < minWidth {
+			return minWidth
+		}
+		return contentWidth
+	}
+
+	return 80 - 20 // default 80 columns minus timestamp
+}
+
+// wrapText wraps text to specified width, breaking on word boundaries.
+func wrapText(text string, width int) string {
+	if width <= 0 || len(text) <= width {
+		return text
+	}
+
+	var result strings.Builder
+	words := strings.Fields(text)
+	lineLen := 0
+
+	for i, word := range words {
+		wordLen := len(word)
+
+		if i == 0 {
+			result.WriteString(word)
+			lineLen = wordLen
+			continue
+		}
+
+		// check if word fits on current line
+		if lineLen+1+wordLen <= width {
+			result.WriteString(" ")
+			result.WriteString(word)
+			lineLen += 1 + wordLen
+		} else {
+			// start new line
+			result.WriteString("\n")
+			result.WriteString(word)
+			lineLen = wordLen
+		}
+	}
+
+	return result.String()
+}
+
 // PrintAligned writes text with timestamp, handling multi-line content properly.
 // Like ralph.py's print_aligned - timestamps the first line, indents continuation lines.
 func (l *Logger) PrintAligned(text string) {
@@ -150,13 +218,26 @@ func (l *Logger) PrintAligned(text string) {
 		return
 	}
 
-	timestamp := time.Now().Format("15:04:05")
+	timestamp := time.Now().Format(timestampFormat)
 	phaseColor := phaseColors[l.phase]
 	tsPrefix := timestampColor.Sprintf("[%s]", timestamp)
-	indent := "          " // 10 chars to align with "[HH:MM:SS] "
+	indent := "                    " // 20 chars to align with "[YY-MM-DD HH:MM:SS] "
 
-	// split into lines and print each
-	lines := strings.Split(text, "\n")
+	// wrap text to terminal width
+	width := getTerminalWidth()
+
+	// split into lines, wrap each long line, then process
+	var lines []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if len(line) > width {
+			wrapped := wrapText(line, width)
+			for wrappedLine := range strings.SplitSeq(wrapped, "\n") {
+				lines = append(lines, wrappedLine)
+			}
+		} else {
+			lines = append(lines, line)
+		}
+	}
 	for i, line := range lines {
 		if line == "" {
 			// preserve empty lines within content
@@ -180,7 +261,7 @@ func (l *Logger) PrintAligned(text string) {
 // Error writes an error message in red.
 func (l *Logger) Error(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("15:04:05")
+	timestamp := time.Now().Format(timestampFormat)
 
 	l.writeFile("[%s] ERROR: %s\n", timestamp, msg)
 
@@ -192,7 +273,7 @@ func (l *Logger) Error(format string, args ...any) {
 // Warn writes a warning message in yellow.
 func (l *Logger) Warn(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
-	timestamp := time.Now().Format("15:04:05")
+	timestamp := time.Now().Format(timestampFormat)
 
 	l.writeFile("[%s] WARN: %s\n", timestamp, msg)
 

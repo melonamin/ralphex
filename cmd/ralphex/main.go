@@ -146,6 +146,13 @@ func run(ctx context.Context, o opts) error {
 		return fmt.Errorf("runner: %w", err)
 	}
 
+	// move completed plan to completed/ directory
+	if planFile != "" && mode == runner.ModeFull {
+		if moveErr := movePlanToCompleted(ctx, planFile); moveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to move plan to completed: %v\n", moveErr)
+		}
+	}
+
 	fmt.Printf("\ncompleted in %s\n", log.Elapsed())
 	return nil
 }
@@ -231,6 +238,36 @@ func createBranchIfNeeded(ctx context.Context, planFile string) error {
 		return fmt.Errorf("failed to create branch %s: %w", branchName, err)
 	}
 
+	return nil
+}
+
+func movePlanToCompleted(ctx context.Context, planFile string) error {
+	// create completed directory
+	completedDir := filepath.Join(filepath.Dir(planFile), "completed")
+	if err := os.MkdirAll(completedDir, 0o750); err != nil {
+		return fmt.Errorf("create completed dir: %w", err)
+	}
+
+	// destination path
+	destPath := filepath.Join(completedDir, filepath.Base(planFile))
+
+	// use git mv if in a git repo, otherwise regular move
+	if err := exec.CommandContext(ctx, "git", "mv", planFile, destPath).Run(); err != nil { //nolint:gosec // paths from CLI
+		// fallback to regular move
+		if renameErr := os.Rename(planFile, destPath); renameErr != nil {
+			return fmt.Errorf("move plan: %w", renameErr)
+		}
+		// add to git if possible
+		_ = exec.CommandContext(ctx, "git", "add", destPath).Run() //nolint:gosec // destPath derived from planFile
+	}
+
+	// commit the move
+	commitMsg := "move completed plan: " + filepath.Base(planFile)
+	if err := exec.CommandContext(ctx, "git", "commit", "-m", commitMsg).Run(); err != nil { //nolint:gosec // msg from filename
+		return fmt.Errorf("commit plan move: %w", err)
+	}
+
+	fmt.Printf("moved plan to %s\n", destPath)
 	return nil
 }
 
