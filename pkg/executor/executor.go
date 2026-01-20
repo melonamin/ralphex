@@ -82,9 +82,7 @@ type streamEvent struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"delta"`
-	Result struct {
-		Output string `json:"output"`
-	} `json:"result"`
+	Result json.RawMessage `json:"result"` // can be string or object with "output" field
 }
 
 // ClaudeExecutor runs claude CLI commands with streaming JSON parsing.
@@ -204,7 +202,22 @@ func (e *ClaudeExecutor) extractText(event *streamEvent) string {
 			}
 		}
 	case "result":
-		return event.Result.Output
+		// result can be a string or object with "output" field
+		if len(event.Result) == 0 {
+			return ""
+		}
+		// try as string first (session summary format)
+		var resultStr string
+		if err := json.Unmarshal(event.Result, &resultStr); err == nil {
+			return "" // skip session summary - content already streamed
+		}
+		// try as object with output field
+		var resultObj struct {
+			Output string `json:"output"`
+		}
+		if err := json.Unmarshal(event.Result, &resultObj); err == nil {
+			return resultObj.Output
+		}
 	}
 	return ""
 }

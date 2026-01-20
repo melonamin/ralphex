@@ -267,10 +267,17 @@ func TestClaudeExecutor_extractText(t *testing.T) {
 		assert.Empty(t, e.extractText(&event))
 	})
 
-	t.Run("result", func(t *testing.T) {
+	t.Run("result with object", func(t *testing.T) {
 		event := streamEvent{Type: "result"}
-		event.Result.Output = "final"
+		event.Result = []byte(`{"output":"final"}`)
 		assert.Equal(t, "final", e.extractText(&event))
+	})
+
+	t.Run("result with string skipped", func(t *testing.T) {
+		// session summary format - content already streamed, should be skipped
+		event := streamEvent{Type: "result"}
+		event.Result = []byte(`"Task completed"`)
+		assert.Empty(t, e.extractText(&event))
 	})
 
 	t.Run("message_stop with text content", func(t *testing.T) {

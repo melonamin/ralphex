@@ -34,5 +34,11 @@
     "command": "make build",
     "use_new_terminal": true,
     "allow_concurrent_runs": false
+  },
+  {
+    "label": "install",
+    "command": "make install",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false
   }
 ]

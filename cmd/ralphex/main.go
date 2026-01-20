@@ -13,11 +13,15 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/fatih/color"
 	"github.com/jessevdk/go-flags"
 
 	"github.com/umputun/ralphex/pkg/processor"
 	"github.com/umputun/ralphex/pkg/progress"
 )
+
+// infoColor for startup messages - light grey
+var infoColor = color.RGB(180, 180, 180)
 
 // opts holds all command-line options.
 type opts struct {
@@ -129,9 +133,9 @@ func run(ctx context.Context, o opts) error {
 	if mode != processor.ModeFull {
 		modeStr = fmt.Sprintf(" (%s mode)", mode)
 	}
-	fmt.Printf("starting ralphex loop: %s (max %d iterations)%s\n", planStr, o.MaxIterations, modeStr)
-	fmt.Printf("branch: %s\n", branch)
-	fmt.Printf("progress log: %s\n\n", log.Path())
+	infoColor.Printf("starting ralphex loop: %s (max %d iterations)%s\n", planStr, o.MaxIterations, modeStr)
+	infoColor.Printf("branch: %s\n", branch)
+	infoColor.Printf("progress log: %s\n\n", log.Path())
 
 	// create and run the runner
 	r := processor.New(processor.Config{
@@ -153,7 +157,7 @@ func run(ctx context.Context, o opts) error {
 		}
 	}
 
-	fmt.Printf("\ncompleted in %s\n", log.Elapsed())
+	infoColor.Printf("\ncompleted in %s\n", log.Elapsed())
 	return nil
 }
 
@@ -191,7 +195,7 @@ func selectPlanWithFzf(ctx context.Context) (string, error) {
 
 	// auto-select if single plan
 	if len(plans) == 1 {
-		fmt.Printf("auto-selected: %s\n", plans[0])
+		infoColor.Printf("auto-selected: %s\n", plans[0])
 		return plans[0], nil
 	}
 
@@ -233,7 +237,7 @@ func createBranchIfNeeded(ctx context.Context, planFile string) error {
 		branchName = name
 	}
 
-	fmt.Printf("creating branch: %s\n", branchName)
+	infoColor.Printf("creating branch: %s\n", branchName)
 	if err := exec.CommandContext(ctx, "git", "checkout", "-b", branchName).Run(); err != nil { //nolint:gosec // branch name from plan filename
 		return fmt.Errorf("failed to create branch %s: %w", branchName, err)
 	}
@@ -267,7 +271,7 @@ func movePlanToCompleted(ctx context.Context, planFile string) error {
 		return fmt.Errorf("commit plan move: %w", err)
 	}
 
-	fmt.Printf("moved plan to %s\n", destPath)
+	infoColor.Printf("moved plan to %s\n", destPath)
 	return nil
 }
 
@@ -288,6 +292,6 @@ func ensureGitignore(ctx context.Context) error {
 		return fmt.Errorf("failed to write .gitignore: %w", err)
 	}
 
-	fmt.Println("added progress-*.txt to .gitignore")
+	infoColor.Println("added progress-*.txt to .gitignore")
 	return nil
 }

@@ -33,7 +33,9 @@ PHASE 3 - COMPLETE (after validation passes):
 
 If any phase fails after reasonable fix attempts, output exactly: <<<RALPHEX:TASK_FAILED>>>
 
-REMINDER: ONE section (Task/Iteration) per loop cycle. After commit, STOP and let the loop handle the next section.`, r.cfg.PlanFile, progressPath)
+REMINDER: ONE section (Task/Iteration) per loop cycle. After commit, STOP and let the loop handle the next section.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `+"`"+`code`+"`"+`, # headers). Plain text and - lists are fine. Do not echo phase names or step numbers - just do the work.`, r.cfg.PlanFile, progressPath)
 }
 
 // buildFirstReviewPrompt creates the prompt for first review pass - address all findings.
@@ -99,7 +101,9 @@ After fixing all confirmed issues (or if none found), output exactly: <<<RALPHEX
 
 Then STOP. Do not continue. The external loop will run additional review passes to verify.
 
-If unable to fix issues after reasonable attempts: <<<RALPHEX:TASK_FAILED>>>`, goal, goal)
+If unable to fix issues after reasonable attempts: <<<RALPHEX:TASK_FAILED>>>
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `+"`"+`code`+"`"+`, # headers). Plain text and - lists are fine.`, goal, goal)
 }
 
 // buildSecondReviewPrompt creates the prompt for second review pass - critical/major only.
@@ -144,7 +148,9 @@ Do NOT reject issues just because they existed before this branch - fix them any
 3. Commit fixes: `+"`git commit -m \"fix: address code review findings\"`"+`
 4. Do NOT output the signal - the external loop will run another review iteration
 
-If unable to fix: <<<RALPHEX:TASK_FAILED>>>`, goal, goal)
+If unable to fix: <<<RALPHEX:TASK_FAILED>>>
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `+"`"+`code`+"`"+`, # headers). Plain text and - lists are fine.`, goal, goal)
 }
 
 // buildCodexEvaluationPrompt creates the prompt for claude to evaluate codex review output.
@@ -179,7 +185,9 @@ Do NOT reject issues just because they existed before this branch - fix them any
 - Commit all fixes with message: "fix: address codex review findings"
 - Output exactly: <<<RALPHEX:CODEX_REVIEW_DONE>>>
 
-CRITICAL: Never run codex commands yourself. The external loop handles codex execution.`, codexOutput)
+CRITICAL: Never run codex commands yourself. The external loop handles codex execution.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `+"`"+`code`+"`"+`, # headers). Plain text and - lists are fine.`, codexOutput)
 }
 
 // buildContinuePrompt creates a prompt to continue after previous iteration.
@@ -195,5 +203,7 @@ func buildContinuePrompt(previousOutput string) string {
 
 %s
 
-Continue executing tasks. Remember to output <<<RALPHEX:ALL_TASKS_DONE>>> when done or <<<RALPHEX:TASK_FAILED>>> if blocked.`, output)
+Continue executing tasks. Remember to output <<<RALPHEX:ALL_TASKS_DONE>>> when done or <<<RALPHEX:TASK_FAILED>>> if blocked.
+
+OUTPUT FORMAT: No markdown formatting (no **bold**, `+"`"+`code`+"`"+`, # headers). Plain text and - lists are fine.`, output)
 }

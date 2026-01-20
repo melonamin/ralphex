@@ -379,3 +379,28 @@ func TestGetTerminalWidth(t *testing.T) {
 		assert.Positive(t, width)
 	})
 }
+
+func TestExtractSignal(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"full signal", "<<<RALPHEX:ALL_TASKS_DONE>>>", "ALL_TASKS_DONE"},
+		{"codex review done", "<<<RALPHEX:CODEX_REVIEW_DONE>>>", "CODEX_REVIEW_DONE"},
+		{"review done", "<<<RALPHEX:REVIEW_DONE>>>", "REVIEW_DONE"},
+		{"task failed", "<<<RALPHEX:TASK_FAILED>>>", "TASK_FAILED"},
+		{"signal in text", "some text <<<RALPHEX:DONE>>> more text", "DONE"},
+		{"no signal", "regular text", ""},
+		{"incomplete prefix", "<<<RALPHEX:SIGNAL", ""},
+		{"incomplete suffix", "RALPHEX:SIGNAL>>>", ""},
+		{"empty", "", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractSignal(tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

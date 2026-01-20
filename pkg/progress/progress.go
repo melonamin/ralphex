@@ -32,7 +32,8 @@ var (
 	codexColor     = color.New(color.FgMagenta)
 	warnColor      = color.New(color.FgYellow)
 	errorColor     = color.New(color.FgRed)
-	timestampColor = color.New(color.FgWhite)
+	signalColor    = color.RGB(255, 100, 100) // bright red
+	timestampColor = color.RGB(138, 138, 138) // medium grey
 )
 
 // phaseColors maps phases to their color functions.
@@ -139,6 +140,14 @@ func (l *Logger) PrintRaw(format string, args ...any) {
 	l.writeStdout("%s", msg)
 }
 
+// PrintSection writes a section header without timestamp in yellow.
+// format: "\n--- {name} ---\n"
+func (l *Logger) PrintSection(name string) {
+	header := fmt.Sprintf("\n--- %s ---\n", name)
+	l.writeFile("%s", header)
+	l.writeStdout("%s", warnColor.Sprint(header))
+}
+
 // getTerminalWidth returns terminal width, using COLUMNS env var or syscall.
 // Defaults to 80 if detection fails. Returns content width (total - 20 for timestamp).
 func getTerminalWidth() int {
@@ -202,8 +211,7 @@ func wrapText(text string, width int) string {
 	return result.String()
 }
 
-// PrintAligned writes text with timestamp, handling multi-line content properly.
-// timestamps the first line, indents continuation lines.
+// PrintAligned writes text with timestamp on each line, suppressing empty lines.
 func (l *Logger) PrintAligned(text string) {
 	if text == "" {
 		return
@@ -215,10 +223,7 @@ func (l *Logger) PrintAligned(text string) {
 		return
 	}
 
-	timestamp := time.Now().Format(timestampFormat)
 	phaseColor := phaseColors[l.phase]
-	tsPrefix := timestampColor.Sprintf("[%s]", timestamp)
-	indent := "                    " // 20 chars to align with "[YY-MM-DD HH:MM:SS] "
 
 	// wrap text to terminal width
 	width := getTerminalWidth()
@@ -235,24 +240,48 @@ func (l *Logger) PrintAligned(text string) {
 			lines = append(lines, line)
 		}
 	}
-	for i, line := range lines {
+
+	for _, line := range lines {
 		if line == "" {
-			// preserve empty lines within content
-			l.writeFile("\n")
-			l.writeStdout("\n")
-			continue
+			continue // skip empty lines
 		}
 
-		if i == 0 {
-			// first line gets timestamp
-			l.writeFile("[%s] %s\n", timestamp, line)
-			l.writeStdout("%s %s\n", tsPrefix, phaseColor.Sprint(line))
-		} else {
-			// continuation lines get indent
-			l.writeFile("%s%s\n", indent, line)
-			l.writeStdout("%s%s\n", indent, phaseColor.Sprint(line))
+		// timestamp each line
+		timestamp := time.Now().Format(timestampFormat)
+		tsPrefix := timestampColor.Sprintf("[%s]", timestamp)
+		l.writeFile("[%s] %s\n", timestamp, line)
+
+		// use red for signal lines
+		lineColor := phaseColor
+		displayLine := line
+
+		// format signal lines nicely
+		if sig := extractSignal(line); sig != "" {
+			displayLine = sig
+			lineColor = signalColor
 		}
+
+		l.writeStdout("%s %s\n", tsPrefix, lineColor.Sprint(displayLine))
 	}
+}
+
+// extractSignal extracts signal name from <<<RALPHEX:SIGNAL_NAME>>> format.
+// returns empty string if no signal found.
+func extractSignal(line string) string {
+	const prefix = "<<<RALPHEX:"
+	const suffix = ">>>"
+
+	start := strings.Index(line, prefix)
+	if start == -1 {
+		return ""
+	}
+
+	end := strings.Index(line[start:], suffix)
+	if end == -1 {
+		return ""
+	}
+
+	return line[start+len(prefix) : start+end]
 }
 
 // Error writes an error message in red.

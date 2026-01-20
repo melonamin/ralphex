@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 )
 
@@ -25,7 +26,8 @@ func (r *execCodexRunner) Run(ctx context.Context, name string, args ...string) 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	return stdout.String(), stderr.String(), err
+	// codex outputs to stderr, not stdout
+	return stderr.String(), stdout.String(), err
 }
 
 // CodexExecutor runs codex CLI commands and filters output.
@@ -133,6 +135,15 @@ var codexNoisePatterns = []string{
 	"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", // spinner chars
 }
 
+// codex exact match noise (short status words)
+var codexExactNoise = []string{
+	"thinking",
+	"user",
+	"exec",
+	"codex",
+	"tokens used",
+}
+
 // filterState tracks state machine for filtering
 type filterState struct {
 	inHeader     bool
@@ -146,6 +157,17 @@ func (e *CodexExecutor) isNoise(line string) bool {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" {
 		return false // keep blank lines within content
+	}
+
+	// check exact match noise (short status words)
+	lower := strings.ToLower(trimmed)
+	if slices.Contains(codexExactNoise, lower) {
+		return true
+	}
+
+	// check if line is just a number (token counts, etc.)
+	if isNumeric(trimmed) {
+		return true
 	}
 
 	// check header prefixes
@@ -262,4 +284,17 @@ func (e *CodexExecutor) stripBold(s string) string {
 		result = result[:start] + result[start+2:start+2+end] + result[start+2+end+2:]
 	}
 	return result
+}
+
+// isNumeric returns true if string contains only digits.
+func isNumeric(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

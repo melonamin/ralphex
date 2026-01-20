@@ -33,6 +33,6 @@ version:
 	@echo "revision: $(REV)"
 
 install: build
-	cp .bin/ralphex $(HOME)/.local/bin/ralphex
+	sudo cp .bin/ralphex /usr/local/bin/ralphex
 
 .PHONY: all build test lint fmt race version install

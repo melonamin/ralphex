@@ -36,6 +36,9 @@ type Config struct {
 	NoColor       bool   // disable color output
 }
 
+//go:generate moq -out mocks/executor.go -pkg mocks -skip-ensure -fmt goimports . Executor
+//go:generate moq -out mocks/logger.go -pkg mocks -skip-ensure -fmt goimports . Logger
+
 // Executor runs CLI commands and returns results.
 type Executor interface {
 	Run(ctx context.Context, prompt string) executor.Result
@@ -46,6 +49,7 @@ type Logger interface {
 	SetPhase(phase progress.Phase)
 	Print(format string, args ...any)
 	PrintRaw(format string, args ...any)
+	PrintSection(name string)
 	PrintAligned(text string)
 	Path() string
 }
@@ -111,7 +115,7 @@ func (r *Runner) runFull(ctx context.Context) error {
 
 	// phase 1: task execution
 	r.log.SetPhase(progress.PhaseTask)
-	r.log.Print("starting task execution phase")
+	r.log.PrintRaw("starting task execution phase\n")
 
 	if err := r.runTaskPhase(ctx); err != nil {
 		return fmt.Errorf("task phase: %w", err)
@@ -119,7 +123,7 @@ func (r *Runner) runFull(ctx context.Context) error {
 
 	// phase 2: first review pass - address ALL findings
 	r.log.SetPhase(progress.PhaseReview)
-	r.log.Print("review pass 1: all findings")
+	r.log.PrintSection("review: all findings")
 
 	if err := r.runClaudeReview(ctx, r.buildFirstReviewPrompt()); err != nil {
 		return fmt.Errorf("first review: %w", err)
@@ -132,7 +136,7 @@ func (r *Runner) runFull(ctx context.Context) error {
 
 	// phase 2.5: codex external review loop
 	r.log.SetPhase(progress.PhaseCodex)
-	r.log.Print("codex external review")
+	r.log.PrintSection("codex external review")
 
 	if err := r.runCodexLoop(ctx); err != nil {
 		return fmt.Errorf("codex loop: %w", err)
@@ -153,7 +157,7 @@ func (r *Runner) runFull(ctx context.Context) error {
 func (r *Runner) runReviewOnly(ctx context.Context) error {
 	// phase 1: first review
 	r.log.SetPhase(progress.PhaseReview)
-	r.log.Print("review pass 1: all findings")
+	r.log.PrintSection("review: all findings")
 
 	if err := r.runClaudeReview(ctx, r.buildFirstReviewPrompt()); err != nil {
 		return fmt.Errorf("first review: %w", err)
@@ -166,7 +170,7 @@ func (r *Runner) runReviewOnly(ctx context.Context) error {
 
 	// phase 2: codex external review loop
 	r.log.SetPhase(progress.PhaseCodex)
-	r.log.Print("codex external review")
+	r.log.PrintSection("codex external review")
 
 	if err := r.runCodexLoop(ctx); err != nil {
 		return fmt.Errorf("codex loop: %w", err)
@@ -187,7 +191,7 @@ func (r *Runner) runReviewOnly(ctx context.Context) error {
 func (r *Runner) runCodexOnly(ctx context.Context) error {
 	// phase 1: codex external review loop
 	r.log.SetPhase(progress.PhaseCodex)
-	r.log.Print("codex external review")
+	r.log.PrintSection("codex external review")
 
 	if err := r.runCodexLoop(ctx); err != nil {
 		return fmt.Errorf("codex loop: %w", err)
@@ -218,7 +222,7 @@ func (r *Runner) runTaskPhase(ctx context.Context) error {
 		default:
 		}
 
-		r.log.Print("task iteration %d/%d", i, r.cfg.MaxIterations)
+		r.log.PrintSection(fmt.Sprintf("task iteration %d", i))
 
 		result := r.claude.Run(ctx, prompt)
 		if result.Error != nil {
@@ -231,7 +235,7 @@ func (r *Runner) runTaskPhase(ctx context.Context) error {
 				r.log.Print("warning: completion signal received but plan still has [ ] items, continuing...")
 				continue
 			}
-			r.log.Print("all tasks completed, starting code review...")
+			r.log.PrintRaw("\nall tasks completed, starting code review...\n")
 			return nil
 		}
 
@@ -283,7 +287,7 @@ func (r *Runner) runClaudeReviewLoop(ctx context.Context) error {
 		default:
 		}
 
-		r.log.Print("claude review: critical/major (iteration %d)", i)
+		r.log.PrintSection(fmt.Sprintf("claude review %d: critical/major", i))
 
 		result := r.claude.Run(ctx, r.buildSecondReviewPrompt())
 		if result.Error != nil {
@@ -321,7 +325,7 @@ func (r *Runner) runCodexLoop(ctx context.Context) error {
 		default:
 		}
 
-		r.log.Print("codex iteration %d", i)
+		r.log.PrintSection(fmt.Sprintf("codex iteration %d", i))
 
 		// run codex analysis
 		codexResult := r.codex.Run(ctx, r.buildCodexPrompt(i == 1, claudeResponse))

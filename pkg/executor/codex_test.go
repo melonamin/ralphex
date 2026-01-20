@@ -302,3 +302,83 @@ func TestStripBold(t *testing.T) {
 		})
 	}
 }
+
+func TestCodexExecutor_isNoise_exactMatches(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"thinking", true},
+		{"Thinking", true},
+		{"THINKING", true},
+		{"user", true},
+		{"exec", true},
+		{"codex", true},
+		{"tokens used", true},
+		{"Tokens Used", true},
+		{"thinking about it", false}, // not exact match
+		{"user input", false},
+	}
+
+	e := &CodexExecutor{}
+	for _, tc := range tests {
+		t.Run(tc.line, func(t *testing.T) {
+			got := e.isNoise(tc.line)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestCodexExecutor_isNoise_numericLines(t *testing.T) {
+	tests := []struct {
+		line string
+		want bool
+	}{
+		{"822", true},
+		{"12345", true},
+		{"0", true},
+		{"123abc", false},
+		{"abc123", false},
+		{"12 34", false},
+		{"", false},
+	}
+
+	e := &CodexExecutor{}
+	for _, tc := range tests {
+		t.Run(tc.line, func(t *testing.T) {
+			got := e.isNoise(tc.line)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestIsNumeric(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"123", true},
+		{"0", true},
+		{"999999", true},
+		{"", false},
+		{"12a", false},
+		{"a12", false},
+		{" 12", false},
+		{"12 ", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := isNumeric(tc.input)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestCodexExecutor_filterOutput_exactNoise(t *testing.T) {
+	e := &CodexExecutor{}
+	input := "thinking\nActual content\nuser\nexec\n822\ncodex\nReal output"
+	got, err := e.filterOutput(input)
+	require.NoError(t, err)
+	assert.Equal(t, "Actual content\nReal output", got)
+}

@@ -11,57 +11,41 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/umputun/ralphex/pkg/executor"
+	"github.com/umputun/ralphex/pkg/processor/mocks"
 	"github.com/umputun/ralphex/pkg/progress"
 )
 
-// mockExecutor is a test double for Executor interface.
-type mockExecutor struct {
-	results []executor.Result
-	calls   []string
-	idx     int
-}
-
-func (m *mockExecutor) Run(_ context.Context, prompt string) executor.Result {
-	m.calls = append(m.calls, prompt)
-	if m.idx >= len(m.results) {
-		return executor.Result{Error: errors.New("no more mock results")}
+// newMockExecutor creates a mock executor with predefined results.
+func newMockExecutor(results []executor.Result) *mocks.ExecutorMock {
+	idx := 0
+	return &mocks.ExecutorMock{
+		RunFunc: func(_ context.Context, _ string) executor.Result {
+			if idx >= len(results) {
+				return executor.Result{Error: errors.New("no more mock results")}
+			}
+			result := results[idx]
+			idx++
+			return result
+		},
 	}
-	result := m.results[m.idx]
-	m.idx++
-	return result
 }
 
-// mockLogger is a test double for Logger interface.
-type mockLogger struct {
-	messages []string
-	phase    progress.Phase
-	path     string
-}
-
-func (m *mockLogger) SetPhase(phase progress.Phase) {
-	m.phase = phase
-}
-
-func (m *mockLogger) Print(format string, args ...any) {
-	m.messages = append(m.messages, format)
-}
-
-func (m *mockLogger) PrintRaw(format string, _ ...any) {
-	m.messages = append(m.messages, format)
-}
-
-func (m *mockLogger) PrintAligned(text string) {
-	m.messages = append(m.messages, text)
-}
-
-func (m *mockLogger) Path() string {
-	return m.path
+// newMockLogger creates a mock logger with no-op implementations.
+func newMockLogger(path string) *mocks.LoggerMock {
+	return &mocks.LoggerMock{
+		SetPhaseFunc:     func(_ progress.Phase) {},
+		PrintFunc:        func(_ string, _ ...any) {},
+		PrintRawFunc:     func(_ string, _ ...any) {},
+		PrintSectionFunc: func(_ string) {},
+		PrintAlignedFunc: func(_ string) {},
+		PathFunc:         func() string { return path },
+	}
 }
 
 func TestRunner_Run_UnknownMode(t *testing.T) {
-	log := &mockLogger{}
-	claude := &mockExecutor{}
-	codex := &mockExecutor{}
+	log := newMockLogger("")
+	claude := newMockExecutor(nil)
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: "invalid"}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -71,9 +55,9 @@ func TestRunner_Run_UnknownMode(t *testing.T) {
 }
 
 func TestRunner_RunFull_NoPlanFile(t *testing.T) {
-	log := &mockLogger{}
-	claude := &mockExecutor{}
-	codex := &mockExecutor{}
+	log := newMockLogger("")
+	claude := newMockExecutor(nil)
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeFull}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -88,27 +72,23 @@ func TestRunner_RunFull_Success(t *testing.T) {
 	// all tasks complete - no [ ] checkboxes
 	require.NoError(t, os.WriteFile(planFile, []byte("# Plan\n- [x] Task 1"), 0o600))
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "task done", Signal: SignalCompleted},    // task phase completes
-			{Output: "review done", Signal: SignalReviewDone}, // first review
-			{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
-			{Output: "done", Signal: SignalCodexDone},         // codex evaluation
-			{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Output: "found issue in foo.go"}, // codex finds issues
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "task done", Signal: SignalCompleted},    // task phase completes
+		{Output: "review done", Signal: SignalReviewDone}, // first review
+		{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
+		{Output: "done", Signal: SignalCodexDone},         // codex evaluation
+		{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Output: "found issue in foo.go"}, // codex finds issues
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
 
 	require.NoError(t, err)
-	assert.Len(t, codex.calls, 1)
+	assert.Len(t, codex.RunCalls(), 1)
 }
 
 func TestRunner_RunFull_NoCodexFindings(t *testing.T) {
@@ -116,20 +96,16 @@ func TestRunner_RunFull_NoCodexFindings(t *testing.T) {
 	planFile := filepath.Join(tmpDir, "plan.md")
 	require.NoError(t, os.WriteFile(planFile, []byte("# Plan\n- [x] Task 1"), 0o600))
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "task done", Signal: SignalCompleted},
-			{Output: "review done", Signal: SignalReviewDone}, // first review
-			{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
-			{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Output: ""}, // codex finds nothing
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "task done", Signal: SignalCompleted},
+		{Output: "review done", Signal: SignalReviewDone}, // first review
+		{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
+		{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Output: ""}, // codex finds nothing
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -138,61 +114,49 @@ func TestRunner_RunFull_NoCodexFindings(t *testing.T) {
 }
 
 func TestRunner_RunReviewOnly_Success(t *testing.T) {
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "review done", Signal: SignalReviewDone}, // first review
-			{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
-			{Output: "done", Signal: SignalCodexDone},         // codex evaluation
-			{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Output: "found issue"},
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "review done", Signal: SignalReviewDone}, // first review
+		{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
+		{Output: "done", Signal: SignalCodexDone},         // codex evaluation
+		{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Output: "found issue"},
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeReview, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
 
 	require.NoError(t, err)
-	assert.Len(t, codex.calls, 1)
+	assert.Len(t, codex.RunCalls(), 1)
 }
 
 func TestRunner_RunCodexOnly_Success(t *testing.T) {
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "done", Signal: SignalCodexDone},         // codex evaluation
-			{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Output: "found issue"},
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "done", Signal: SignalCodexDone},         // codex evaluation
+		{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Output: "found issue"},
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeCodexOnly, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
 
 	require.NoError(t, err)
-	assert.Len(t, codex.calls, 1)
+	assert.Len(t, codex.RunCalls(), 1)
 }
 
 func TestRunner_RunCodexOnly_NoFindings(t *testing.T) {
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Output: ""}, // no findings
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "review done", Signal: SignalReviewDone}, // post-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Output: ""}, // no findings
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeCodexOnly, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -205,14 +169,12 @@ func TestRunner_TaskPhase_FailedSignal(t *testing.T) {
 	planFile := filepath.Join(tmpDir, "plan.md")
 	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "error", Signal: SignalFailed}, // first try
-			{Output: "error", Signal: SignalFailed}, // retry
-		},
-	}
-	codex := &mockExecutor{}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "error", Signal: SignalFailed}, // first try
+		{Output: "error", Signal: SignalFailed}, // retry
+	})
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 10}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -226,15 +188,13 @@ func TestRunner_TaskPhase_MaxIterations(t *testing.T) {
 	planFile := filepath.Join(tmpDir, "plan.md")
 	require.NoError(t, os.WriteFile(planFile, []byte("# Plan\n- [ ] Task 1"), 0o600))
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "working..."},
-			{Output: "still working..."},
-			{Output: "more work..."},
-		},
-	}
-	codex := &mockExecutor{}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "working..."},
+		{Output: "still working..."},
+		{Output: "more work..."},
+	})
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 3}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -251,9 +211,9 @@ func TestRunner_TaskPhase_ContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{}
-	codex := &mockExecutor{}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor(nil)
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 10}, log, claude, codex)
 	err := r.Run(ctx)
@@ -263,13 +223,11 @@ func TestRunner_TaskPhase_ContextCanceled(t *testing.T) {
 }
 
 func TestRunner_ClaudeReview_FailedSignal(t *testing.T) {
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "error", Signal: SignalFailed},
-		},
-	}
-	codex := &mockExecutor{}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "error", Signal: SignalFailed},
+	})
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeReview, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -279,18 +237,14 @@ func TestRunner_ClaudeReview_FailedSignal(t *testing.T) {
 }
 
 func TestRunner_CodexPhase_Error(t *testing.T) {
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Output: "review done", Signal: SignalReviewDone}, // first review
-			{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
-		},
-	}
-	codex := &mockExecutor{
-		results: []executor.Result{
-			{Error: errors.New("codex error")},
-		},
-	}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Output: "review done", Signal: SignalReviewDone}, // first review
+		{Output: "review done", Signal: SignalReviewDone}, // pre-codex review loop
+	})
+	codex := newMockExecutor([]executor.Result{
+		{Error: errors.New("codex error")},
+	})
 
 	r := NewWithExecutors(Config{Mode: ModeReview, MaxIterations: 50}, log, claude, codex)
 	err := r.Run(context.Background())
@@ -304,13 +258,11 @@ func TestRunner_ClaudeExecution_Error(t *testing.T) {
 	planFile := filepath.Join(tmpDir, "plan.md")
 	require.NoError(t, os.WriteFile(planFile, []byte("# Plan"), 0o600))
 
-	log := &mockLogger{path: "progress.txt"}
-	claude := &mockExecutor{
-		results: []executor.Result{
-			{Error: errors.New("claude error")},
-		},
-	}
-	codex := &mockExecutor{}
+	log := newMockLogger("progress.txt")
+	claude := newMockExecutor([]executor.Result{
+		{Error: errors.New("claude error")},
+	})
+	codex := newMockExecutor(nil)
 
 	r := NewWithExecutors(Config{Mode: ModeFull, PlanFile: planFile, MaxIterations: 10}, log, claude, codex)
 	err := r.Run(context.Background())
