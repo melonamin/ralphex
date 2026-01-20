@@ -273,11 +273,30 @@ func TestCodexExecutor_filterOutput_fullReviewSection(t *testing.T) {
 }
 
 func TestCodexExecutor_filterOutput_deduplicates(t *testing.T) {
-	e := &CodexExecutor{}
-	input := "Line 1\nLine 1\nLine 2\nLine 2\nLine 3"
-	got, err := e.filterOutput(input)
-	require.NoError(t, err)
-	assert.Equal(t, "Line 1\nLine 2\nLine 3", got)
+	t.Run("consecutive duplicates", func(t *testing.T) {
+		e := &CodexExecutor{}
+		input := "Line 1\nLine 1\nLine 2\nLine 2\nLine 3"
+		got, err := e.filterOutput(input)
+		require.NoError(t, err)
+		assert.Equal(t, "Line 1\nLine 2\nLine 3", got)
+	})
+
+	t.Run("non-consecutive duplicates", func(t *testing.T) {
+		e := &CodexExecutor{}
+		input := "NO ISSUES FOUND\nSome other line\nNO ISSUES FOUND\nAnother line\nNO ISSUES FOUND"
+		got, err := e.filterOutput(input)
+		require.NoError(t, err)
+		assert.Equal(t, "NO ISSUES FOUND\nSome other line\nAnother line", got)
+	})
+
+	t.Run("similar but different lines kept", func(t *testing.T) {
+		e := &CodexExecutor{}
+		input := "NO ISSUES FOUND\nNO ISSUES FOUND in the diff\nNO ISSUES FOUND here too"
+		got, err := e.filterOutput(input)
+		require.NoError(t, err)
+		// all three are different strings, so all should be kept
+		assert.Equal(t, "NO ISSUES FOUND\nNO ISSUES FOUND in the diff\nNO ISSUES FOUND here too", got)
+	})
 }
 
 func TestStripBold(t *testing.T) {

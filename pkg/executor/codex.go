@@ -148,7 +148,7 @@ var codexExactNoise = []string{
 type filterState struct {
 	inHeader     bool
 	inFullReview bool
-	lastLine     string
+	seen         map[string]bool // track all seen lines for deduplication
 }
 
 // isNoise returns true if line should be filtered out.
@@ -191,7 +191,7 @@ func (e *CodexExecutor) isNoise(line string) bool {
 func (e *CodexExecutor) filterOutput(output string) (string, error) {
 	var lines []string
 	scanner := bufio.NewScanner(strings.NewReader(output))
-	state := &filterState{inHeader: true}
+	state := &filterState{inHeader: true, seen: make(map[string]bool)}
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -214,17 +214,10 @@ func (e *CodexExecutor) filterOutput(output string) (string, error) {
 			state.inHeader = false
 		}
 
-		// once in review section, keep all lines
+		// once in review section, keep all lines (no dedup needed)
 		if state.inFullReview {
-			// strip bold markers **text**
 			cleaned := e.stripBold(line)
-			// deduplicate consecutive identical lines (but keep blank lines)
-			if cleaned != state.lastLine || trimmed == "" {
-				lines = append(lines, cleaned)
-				if trimmed != "" {
-					state.lastLine = cleaned
-				}
-			}
+			lines = append(lines, cleaned)
 			continue
 		}
 
@@ -252,11 +245,11 @@ func (e *CodexExecutor) filterOutput(output string) (string, error) {
 			state.inHeader = false
 		}
 
-		// process content line with deduplication
+		// process content line with global deduplication
 		cleaned := e.stripBold(line)
-		if cleaned != state.lastLine {
+		if !state.seen[cleaned] {
 			lines = append(lines, cleaned)
-			state.lastLine = cleaned
+			state.seen[cleaned] = true
 		}
 	}
 
