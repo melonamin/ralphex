@@ -1,10 +1,16 @@
-# ralphex [![build](https://github.com/umputun/ralphex/actions/workflows/ci.yml/badge.svg)](https://github.com/umputun/ralphex/actions/workflows/ci.yml) [![Coverage Status](https://coveralls.io/repos/github/umputun/ralphex/badge.svg?branch=master)](https://coveralls.io/github/umputun/ralphex?branch=master) [![Go Report Card](https://goreportcard.com/badge/github.com/umputun/ralphex)](https://goreportcard.com/report/github.com/umputun/ralphex)
+<h1 align="center">ralphex</h1>
+
+<p align="center">
+  <a href="https://github.com/umputun/ralphex/actions/workflows/ci.yml"><img src="https://github.com/umputun/ralphex/actions/workflows/ci.yml/badge.svg" alt="build"></a>
+  <a href="https://coveralls.io/github/umputun/ralphex?branch=master"><img src="https://coveralls.io/repos/github/umputun/ralphex/badge.svg?branch=master" alt="Coverage Status"></a>
+  <a href="https://goreportcard.com/report/github.com/umputun/ralphex"><img src="https://goreportcard.com/badge/github.com/umputun/ralphex" alt="Go Report Card"></a>
+</p>
 
 <p align="center">
   <img src="assets/ralphex-icon-transparent.png" alt="ralphex logo" width="180">
 </p>
 
-## Autonomous plan execution with Claude Code
+<h2 align="center">Autonomous plan execution with Claude Code</h2>
 
 *ralphex is a standalone CLI tool that runs in your terminal from the root of a git repository. It orchestrates Claude Code to execute implementation plans autonomously - no IDE plugins or cloud services required, just Claude Code and a single binary.*
 
