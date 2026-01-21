@@ -8,6 +8,20 @@ Claude Code is powerful but interactive - it requires you to watch, approve, and
 
 ralphex solves both problems. Each task executes in a fresh Claude Code session with minimal context, keeping the model sharp throughout the entire plan. Write a plan with tasks and validation commands, start ralphex, and walk away. Come back to find your feature implemented, reviewed, and committed - or check the progress log to see what it's doing.
 
+<details>
+<summary>Task Execution Screenshot</summary>
+
+![ralphex tasks](ralphex-tasks.png)
+
+</details>
+
+<details>
+<summary>Review Mode Screenshot</summary>
+
+![ralphex review](ralphex-review.png)
+
+</details>
+
 ## Features
 
 - **Zero setup** - works out of the box with sensible defaults, no configuration required
