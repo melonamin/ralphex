@@ -20,7 +20,88 @@ Autonomous plan execution with Claude Code with automated reviews.
 
 ## How It Works
 
-ralphex executes plans in three phases with automated code review between each phase.
+ralphex executes plans in four phases with automated code review between each phase.
+
+### Execution Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         PHASE 1: Task Execution                         │
+│                                                                         │
+│  ┌─────────┐    ┌─────────────┐    ┌──────────┐    ┌────────────────┐   │
+│  │  Read   │───▶│   Execute   │───▶│ Validate │───▶│ Mark Complete  │   │
+│  │  Task   │    │  via Claude │    │ (tests)  │    │   & Commit     │   │
+│  └─────────┘    └─────────────┘    └──────────┘    └───────┬────────┘   │
+│       ▲                                                    │            │
+│       │                         ┌──────────────────────────┘            │
+│       │                         ▼                                       │
+│       │                  ┌─────────────┐                                │
+│       └──────────────────│ more tasks? │                                │
+│              YES         └──────┬──────┘                                │
+│                                 │ NO (COMPLETED signal)                 │
+└─────────────────────────────────┼───────────────────────────────────────┘
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      PHASE 2: First Code Review                         │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  N agents in parallel: quality, implementation, testing,         │   │
+│  │                        simplification, documentation, etc        │   │
+│  └──────────────────────────────┬───────────────────────────────────┘   │
+│              ▲                  ▼                                       │
+│              │          ┌───────────────┐                               │
+│              └──────────│ issues found? │                               │
+│                  YES    └───────┬───────┘                               │
+│                                 │ NO                                    │
+│                                 ▼                                       │
+│                         ┌───────────────┐                               │
+│                         │  Fix & Commit │                               │
+│                         └───────┬───────┘                               │
+│                                 │                                       │
+│                                 │ REVIEW_DONE signal                    │
+└─────────────────────────────────┼───────────────────────────────────────┘
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     PHASE 3: Codex External Review                      │
+│                                                                         │
+│              ┌──────────────────────────────────────────┐               │
+│              │                                          │               │
+│              ▼                                          │               │
+│      ┌───────────────┐    ┌───────────────┐             │               │
+│      │ Codex reviews │───▶│ Claude evals  │             │               │
+│      │   (GPT-5.2)   │    │   & fixes     │             │               │
+│      └───────────────┘    └───────┬───────┘             │               │
+│                                   ▼                     │               │
+│                           ┌───────────────┐             │               │
+│                           │ issues found? │─────────────┘               │
+│                           └───────┬───────┘   YES                       │
+│                                   │ NO (CODEX_REVIEW_DONE signal)       │
+└───────────────────────────────────┼─────────────────────────────────────┘
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     PHASE 4: Second Code Review                         │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │  M agents: quality, implementation (critical/major only)         │   │
+│  └──────────────────────────────┬───────────────────────────────────┘   │
+│              ▲                  ▼                                       │
+│              │          ┌───────────────┐                               │
+│              └──────────│ issues found? │                               │
+│                  YES    └───────┬───────┘                               │
+│                                 │ NO                                    │
+│                                 ▼                                       │
+│                         ┌───────────────┐                               │
+│                         │  Fix & Commit │                               │
+│                         └───────┬───────┘                               │
+│                                 │                                       │
+│                                 │ REVIEW_DONE signal                    │
+└─────────────────────────────────┼───────────────────────────────────────┘
+                                  ▼
+                      ┌───────────────────────┐
+                      │  Move plan to         │
+                      │  docs/plans/completed │
+                      └───────────────────────┘
+```
 
 ### Phase 1: Task Execution
 
@@ -46,13 +127,13 @@ Claude verifies findings, fixes confirmed issues, and commits.
 
 *These are the default agents. Customize via `~/.config/ralphex/agents/` and `prompts/review_first.txt`.*
 
-### Phase 2.5: Codex External Review
+### Phase 3: Codex External Review
 
 1. Runs codex (GPT-5.2) for independent code review
 2. Claude evaluates codex findings, fixes valid issues
 3. Iterates until codex finds no new issues
 
-### Phase 3: Second Code Review
+### Phase 4: Second Code Review
 
 1. Launches 2 agents (`quality` + `implementation`) for final review
 2. Focuses on critical/major issues only
@@ -143,7 +224,7 @@ Add JWT-based authentication to the API.
 
 ## Review Agents
 
-The review pipeline is fully customizable. ralphex ships with sensible defaults for common Go projects, but you can modify agents, add new ones, or replace prompts entirely to match your specific workflow.
+The review pipeline is fully customizable. ralphex ships with sensible defaults that work for any language, but you can modify agents, add new ones, or replace prompts entirely to match your specific workflow.
 
 ### Default Agents
 
@@ -178,13 +259,13 @@ The entire system is designed for customization - both task execution and review
 - Edit existing files to modify agent behavior
 - Add new `.txt` files to create custom agents
 - Delete files and restart to restore defaults
-- Reference built-in Claude Code agents (like `qa-expert`, `go-smells-expert`) directly
+- Reference built-in Claude Code agents (like `qa-expert`, `code-reviewer`) directly
 
 **Prompt files** (`~/.config/ralphex/prompts/`):
-- `review_first.txt` - controls which agents run in first review
-- `review_second.txt` - controls which agents run in second review
 - `task.txt` - task execution prompt
+- `review_first.txt` - first review prompt (can use custom and built-in Claude agents)
 - `codex.txt` - codex review prompt
+- `review_second.txt` - second review prompt (can use custom and built-in Claude agents)
 
 **Comment syntax:**
 Lines starting with `#` (after optional whitespace) are treated as comments and stripped when loading prompt and agent files. Use comments to document your customizations:

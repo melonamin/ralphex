@@ -1,5 +1,5 @@
 # second review prompt
-# this prompt is used for subsequent review passes in phase 2
+# this prompt is used for the final review pass in phase 4
 # focuses on critical/major issues only, uses 2 agents
 #
 # available variables:

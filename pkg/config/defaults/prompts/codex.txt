@@ -1,6 +1,6 @@
 # codex evaluation prompt
 # this prompt is used when claude evaluates codex (GPT-5.2) review output
-# codex runs in phase 2.5, between first and second claude reviews
+# codex runs in phase 3, between first and second claude reviews
 #
 # available variables:
 #   {{PLAN_FILE}} - path to the plan file being executed

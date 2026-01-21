@@ -15,16 +15,16 @@ A Task section is a "### Task N:" or "### Iteration N:" header with all its chec
 Complete ALL checkboxes in that section, then STOP.
 Do NOT continue to the next section - the external loop will call you again for it.
 
-PHASE 1 - IMPLEMENT:
+STEP 1 - IMPLEMENT:
 - Read the plan's Overview and Context sections to understand the work
 - Implement ALL items in the current Task section (all [ ] checkboxes under it)
 - Write tests for the implementation
 
-PHASE 2 - VALIDATE:
+STEP 2 - VALIDATE:
 - Run the test and lint commands specified in the plan (e.g., "cargo test", "go test ./...", etc.)
 - Fix any failures, repeat until all validation passes
 
-PHASE 3 - COMPLETE (after validation passes):
+STEP 3 - COMPLETE (after validation passes):
 - Edit the plan file: change [ ] to [x] for ALL checkboxes in this section
 - Commit all changes with message: feat: <brief task description>
 - Check if any [ ] checkboxes remain in other sections
