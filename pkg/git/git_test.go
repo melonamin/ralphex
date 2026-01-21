@@ -2,6 +2,7 @@ package git
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -23,6 +24,24 @@ func TestOpen(t *testing.T) {
 		dir := t.TempDir()
 		_, err := Open(dir)
 		assert.Error(t, err)
+	})
+
+	t.Run("opens git worktree", func(t *testing.T) {
+		mainDir := setupTestRepo(t)
+
+		// create worktree using git CLI (go-git doesn't support worktree creation)
+		wtDir := filepath.Join(t.TempDir(), "worktree")
+		cmd := exec.Command("git", "worktree", "add", wtDir, "-b", "wt-branch") //nolint:gosec // wtDir from t.TempDir() is safe
+		cmd.Dir = mainDir
+		require.NoError(t, cmd.Run())
+
+		// open worktree with our Open()
+		repo, err := Open(wtDir)
+		require.NoError(t, err)
+
+		branch, err := repo.CurrentBranch()
+		require.NoError(t, err)
+		assert.Equal(t, "wt-branch", branch)
 	})
 }
 
