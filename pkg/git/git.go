@@ -56,8 +56,11 @@ func (r *Repo) toRelative(path string) (string, error) {
 }
 
 // Open opens a git repository at the given path.
+// Supports both regular repositories and git worktrees.
 func Open(path string) (*Repo, error) {
-	repo, err := git.PlainOpen(path)
+	repo, err := git.PlainOpenWithOptions(path, &git.PlainOpenOptions{
+		EnableDotGitCommonDir: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open repository: %w", err)
 	}
