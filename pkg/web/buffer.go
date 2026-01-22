@@ -91,9 +91,9 @@ func (b *Buffer) All() []Event {
 
 	result := make([]Event, actualCount)
 
-	if b.count <= b.maxSize {
+	if actualCount < b.maxSize {
 		// buffer not full yet, just copy from start
-		copy(result, b.events[:b.count])
+		copy(result, b.events[:actualCount])
 	} else {
 		// buffer wrapped, read from writePos to end, then start to writePos
 		tailLen := b.maxSize - b.writePos
@@ -115,16 +115,13 @@ func (b *Buffer) ByPhase(phase progress.Phase) []Event {
 	}
 
 	// convert indices to events in chronological order
-	// note: indices are added chronologically, so we need to sort by buffer position
-	// taking into account wraparound
-
 	result := make([]Event, len(indices))
 	for i, idx := range indices {
 		result[i] = b.events[idx]
 	}
 
 	// sort by timestamp to ensure chronological order (handles wraparound correctly)
-	// using simple insertion sort as arrays are typically small
+	// using simple insertion sort as phase event arrays are typically small
 	for i := 1; i < len(result); i++ {
 		j := i
 		for j > 0 && result[j].Timestamp.Before(result[j-1].Timestamp) {

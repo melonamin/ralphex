@@ -25,7 +25,8 @@ func TestNewServer(t *testing.T) {
 		Branch:   "main",
 	}
 
-	srv := NewServer(cfg, hub, buffer)
+	srv, err := NewServer(cfg, hub, buffer)
+	require.NoError(t, err)
 
 	assert.NotNil(t, srv)
 	assert.Equal(t, hub, srv.Hub())
@@ -35,11 +36,12 @@ func TestNewServer(t *testing.T) {
 func TestServer_HandleIndex(t *testing.T) {
 	hub := NewHub()
 	buffer := NewBuffer(100)
-	srv := NewServer(ServerConfig{
+	srv, err := NewServer(ServerConfig{
 		Port:     8080,
 		PlanName: "my-plan.md",
 		Branch:   "feature-branch",
 	}, hub, buffer)
+	require.NoError(t, err)
 
 	t.Run("serves index page", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
@@ -79,7 +81,8 @@ func TestServer_HandleEvents(t *testing.T) {
 	t.Run("sets SSE headers", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{}, hub, buffer)
+		srv, err := NewServer(ServerConfig{}, hub, buffer)
+		require.NoError(t, err)
 
 		// use a context that cancels quickly
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -101,7 +104,8 @@ func TestServer_HandleEvents(t *testing.T) {
 	t.Run("sends history on connect", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{}, hub, buffer)
+		srv, err := NewServer(ServerConfig{}, hub, buffer)
+		require.NoError(t, err)
 
 		// add some history
 		buffer.Add(NewOutputEvent(progress.PhaseTask, "historical event"))
@@ -121,7 +125,8 @@ func TestServer_HandleEvents(t *testing.T) {
 	t.Run("streams new events", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{}, hub, buffer)
+		srv, err := NewServer(ServerConfig{}, hub, buffer)
+		require.NoError(t, err)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cancel()
@@ -153,11 +158,12 @@ func TestServer_HandleEvents(t *testing.T) {
 func TestServer_StartStop(t *testing.T) {
 	hub := NewHub()
 	buffer := NewBuffer(100)
-	srv := NewServer(ServerConfig{
+	srv, err := NewServer(ServerConfig{
 		Port:     0, // will use random port
 		PlanName: "test",
 		Branch:   "main",
 	}, hub, buffer)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -186,9 +192,10 @@ func TestServer_Stop(t *testing.T) {
 	t.Run("stop without start is safe", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{}, hub, buffer)
+		srv, err := NewServer(ServerConfig{}, hub, buffer)
+		require.NoError(t, err)
 
-		err := srv.Stop()
+		err = srv.Stop()
 		assert.NoError(t, err)
 	})
 }
@@ -196,7 +203,8 @@ func TestServer_Stop(t *testing.T) {
 func TestServer_StaticFiles(t *testing.T) {
 	hub := NewHub()
 	buffer := NewBuffer(100)
-	srv := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+	srv, err := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+	require.NoError(t, err)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleIndex)
@@ -218,7 +226,8 @@ func TestServer_StaticFiles(t *testing.T) {
 func TestServer_SSE_LateJoiningClient(t *testing.T) {
 	hub := NewHub()
 	buffer := NewBuffer(100)
-	srv := NewServer(ServerConfig{}, hub, buffer)
+	srv, err := NewServer(ServerConfig{}, hub, buffer)
+	require.NoError(t, err)
 
 	// broadcast some events before any client connects
 	hub.Broadcast(NewOutputEvent(progress.PhaseTask, "event 1"))
@@ -246,6 +255,30 @@ func TestServer_SSE_LateJoiningClient(t *testing.T) {
 	assert.Contains(t, body, "event 2")
 }
 
+func TestServer_HandleEvents_MaxClientsExceeded(t *testing.T) {
+	hub := NewHub()
+	buffer := NewBuffer(100)
+	srv, err := NewServer(ServerConfig{}, hub, buffer)
+	require.NoError(t, err)
+
+	// fill up hub with max clients
+	for range MaxClients {
+		_, err := hub.Subscribe()
+		require.NoError(t, err)
+	}
+
+	// next request should get 503
+	req := httptest.NewRequest(http.MethodGet, "/events", http.NoBody)
+	w := httptest.NewRecorder()
+
+	srv.handleEvents(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+}
+
 func TestServer_HandlePlan(t *testing.T) {
 	t.Run("returns plan JSON", func(t *testing.T) {
 		hub := NewHub()
@@ -254,19 +287,20 @@ func TestServer_HandlePlan(t *testing.T) {
 		// create a temp plan file
 		tmpDir := t.TempDir()
 		planFile := tmpDir + "/test-plan.md"
-		content := `# Test Plan
+		planContent := `# Test Plan
 
 ### Task 1: First Task
 
 - [ ] Item 1
 - [x] Item 2
 `
-		require.NoError(t, os.WriteFile(planFile, []byte(content), 0o600))
+		require.NoError(t, os.WriteFile(planFile, []byte(planContent), 0o600))
 
-		srv := NewServer(ServerConfig{
+		srv, err := NewServer(ServerConfig{
 			Port:     8080,
 			PlanFile: planFile,
 		}, hub, buffer)
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/plan", http.NoBody)
 		w := httptest.NewRecorder()
@@ -289,7 +323,8 @@ func TestServer_HandlePlan(t *testing.T) {
 	t.Run("returns 404 when no plan file", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+		srv, err := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/plan", http.NoBody)
 		w := httptest.NewRecorder()
@@ -305,10 +340,11 @@ func TestServer_HandlePlan(t *testing.T) {
 	t.Run("returns 500 for invalid plan file", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{
+		srv, err := NewServer(ServerConfig{
 			Port:     8080,
 			PlanFile: "/nonexistent/plan.md",
 		}, hub, buffer)
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/plan", http.NoBody)
 		w := httptest.NewRecorder()
@@ -336,18 +372,19 @@ func TestServer_HandlePlan(t *testing.T) {
 		completedDir := filepath.Join(tmpDir, "completed")
 		require.NoError(t, os.MkdirAll(completedDir, 0o750))
 		completedPlan := filepath.Join(completedDir, "plan.md")
-		content := `# Completed Plan
+		planContent := `# Completed Plan
 
 ### Task 1: Done
 
 - [x] Item
 `
-		require.NoError(t, os.WriteFile(completedPlan, []byte(content), 0o600))
+		require.NoError(t, os.WriteFile(completedPlan, []byte(planContent), 0o600))
 
-		srv := NewServer(ServerConfig{
+		srv, err := NewServer(ServerConfig{
 			Port:     8080,
 			PlanFile: planFile,
 		}, hub, buffer)
+		require.NoError(t, err)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/plan", http.NoBody)
 		w := httptest.NewRecorder()
@@ -366,7 +403,8 @@ func TestServer_HandlePlan(t *testing.T) {
 	t.Run("rejects non-GET methods", func(t *testing.T) {
 		hub := NewHub()
 		buffer := NewBuffer(100)
-		srv := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+		srv, err := NewServer(ServerConfig{Port: 8080}, hub, buffer)
+		require.NoError(t, err)
 
 		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
 			req := httptest.NewRequest(method, "/api/plan", http.NoBody)

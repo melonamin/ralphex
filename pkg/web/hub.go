@@ -1,8 +1,16 @@
 package web
 
 import (
+	"errors"
 	"sync"
 )
+
+// MaxClients is the maximum number of concurrent SSE connections allowed.
+// prevents DoS attacks via connection exhaustion.
+const MaxClients = 100
+
+// ErrMaxClientsExceeded is returned when the connection limit is reached.
+var ErrMaxClientsExceeded = errors.New("max clients exceeded")
 
 // Hub manages SSE client subscriptions and broadcasts events.
 // thread-safe for concurrent subscribe/unsubscribe/broadcast operations.
@@ -21,14 +29,19 @@ func NewHub() *Hub {
 // Subscribe adds a client channel to receive events.
 // returns a buffered channel that will receive broadcast events.
 // the returned channel has buffer size of 256 to handle burst events.
-func (h *Hub) Subscribe() chan Event {
-	ch := make(chan Event, 256)
-
+// returns ErrMaxClientsExceeded if the connection limit is reached.
+func (h *Hub) Subscribe() (chan Event, error) {
 	h.mu.Lock()
-	h.clients[ch] = struct{}{}
-	h.mu.Unlock()
+	defer h.mu.Unlock()
 
-	return ch
+	if len(h.clients) >= MaxClients {
+		return nil, ErrMaxClientsExceeded
+	}
+
+	ch := make(chan Event, 256)
+	h.clients[ch] = struct{}{}
+
+	return ch, nil
 }
 
 // Unsubscribe removes a client channel and closes it.

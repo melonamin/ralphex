@@ -15,7 +15,7 @@ import (
 )
 
 //go:embed templates static
-var content embed.FS
+var embeddedFS embed.FS
 
 // ServerConfig holds configuration for the web server.
 type ServerConfig struct {
@@ -31,6 +31,7 @@ type Server struct {
 	hub    *Hub
 	buffer *Buffer
 	srv    *http.Server
+	tmpl   *template.Template
 
 	// plan caching - set after first successful load
 	planMu    sync.Mutex
@@ -38,12 +39,19 @@ type Server struct {
 }
 
 // NewServer creates a new web server.
-func NewServer(cfg ServerConfig, hub *Hub, buffer *Buffer) *Server {
+// returns an error if the embedded template fails to parse.
+func NewServer(cfg ServerConfig, hub *Hub, buffer *Buffer) (*Server, error) {
+	tmpl, err := template.ParseFS(embeddedFS, "templates/base.html")
+	if err != nil {
+		return nil, fmt.Errorf("parse template: %w", err)
+	}
+
 	return &Server{
 		cfg:    cfg,
 		hub:    hub,
 		buffer: buffer,
-	}
+		tmpl:   tmpl,
+	}, nil
 }
 
 // Start begins listening for HTTP requests.
@@ -57,14 +65,14 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/plan", s.handlePlan)
 
 	// static files
-	staticFS, err := fs.Sub(content, "static")
+	staticFS, err := fs.Sub(embeddedFS, "static")
 	if err != nil {
 		return fmt.Errorf("static filesystem: %w", err)
 	}
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	s.srv = &http.Server{
-		Addr:              fmt.Sprintf(":%d", s.cfg.Port),
+		Addr:              fmt.Sprintf("127.0.0.1:%d", s.cfg.Port),
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -120,13 +128,6 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse template from embedded filesystem
-	tmpl, err := template.ParseFS(content, "templates/base.html")
-	if err != nil {
-		http.Error(w, "template error", http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	data := templateData{
@@ -134,7 +135,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Branch:   s.cfg.Branch,
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := s.tmpl.Execute(w, data); err != nil {
 		http.Error(w, "template execution error", http.StatusInternalServerError)
 		return
 	}
@@ -212,7 +213,11 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// subscribe to hub
-	eventCh := s.hub.Subscribe()
+	eventCh, err := s.hub.Subscribe()
+	if err != nil {
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		return
+	}
 	defer s.hub.Unsubscribe(eventCh)
 
 	// send history first

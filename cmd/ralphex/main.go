@@ -460,12 +460,15 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 	}
 
 	// create and start web server in background
-	srv := web.NewServer(web.ServerConfig{
+	srv, err := web.NewServer(web.ServerConfig{
 		Port:     port,
 		PlanName: planName,
 		Branch:   branch,
 		PlanFile: planFile,
 	}, hub, buffer)
+	if err != nil {
+		return nil, fmt.Errorf("create web server: %w", err)
+	}
 
 	// use channel to detect startup success/failure
 	srvErrCh := make(chan error, 1)
