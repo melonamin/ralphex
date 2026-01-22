@@ -25,14 +25,15 @@ import (
 
 // opts holds all command-line options.
 type opts struct {
-	MaxIterations int  `short:"m" long:"max-iterations" default:"50" description:"maximum task iterations"`
-	Review        bool `short:"r" long:"review" description:"skip task execution, run full review pipeline"`
-	CodexOnly     bool `short:"c" long:"codex-only" description:"skip tasks and first review, run only codex loop"`
-	Debug         bool `short:"d" long:"debug" description:"enable debug logging"`
-	NoColor       bool `long:"no-color" description:"disable color output"`
-	Version       bool `short:"v" long:"version" description:"print version and exit"`
-	Serve         bool `short:"s" long:"serve" description:"start web dashboard for real-time streaming"`
-	Port          int  `short:"p" long:"port" default:"8080" description:"web dashboard port"`
+	MaxIterations int      `short:"m" long:"max-iterations" default:"50" description:"maximum task iterations"`
+	Review        bool     `short:"r" long:"review" description:"skip task execution, run full review pipeline"`
+	CodexOnly     bool     `short:"c" long:"codex-only" description:"skip tasks and first review, run only codex loop"`
+	Debug         bool     `short:"d" long:"debug" description:"enable debug logging"`
+	NoColor       bool     `long:"no-color" description:"disable color output"`
+	Version       bool     `short:"v" long:"version" description:"print version and exit"`
+	Serve         bool     `short:"s" long:"serve" description:"start web dashboard for real-time streaming"`
+	Port          int      `short:"p" long:"port" default:"8080" description:"web dashboard port"`
+	Watch         []string `short:"w" long:"watch" description:"directories to watch for progress files (repeatable)"`
 
 	PlanFile string `positional-arg-name:"plan-file" description:"path to plan file (optional, uses fzf if omitted)"`
 }

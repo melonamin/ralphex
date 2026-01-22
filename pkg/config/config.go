@@ -41,7 +41,8 @@ type Config struct {
 	TaskRetryCount      int  `json:"task_retry_count"`
 	TaskRetryCountSet   bool `json:"-"` // tracks if task_retry_count was explicitly set in config
 
-	PlansDir string `json:"plans_dir"`
+	PlansDir  string   `json:"plans_dir"`
+	WatchDirs []string `json:"watch_dirs"` // directories to watch for progress files
 
 	// output colors (RGB values as comma-separated strings)
 	Colors ColorConfig `json:"-"`
@@ -177,6 +178,7 @@ func loadWithLocal(globalDir, localDir string) (*Config, error) {
 		TaskRetryCount:       values.TaskRetryCount,
 		TaskRetryCountSet:    values.TaskRetryCountSet,
 		PlansDir:             values.PlansDir,
+		WatchDirs:            values.WatchDirs,
 		Colors:               colors,
 		TaskPrompt:           prompts.Task,
 		ReviewFirstPrompt:    prompts.ReviewFirst,

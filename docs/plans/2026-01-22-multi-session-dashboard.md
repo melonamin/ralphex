@@ -45,13 +45,13 @@ Extend the web server API to support multiple sessions. Clients can list availab
 
 Add recursive directory watching for multi-project monitoring. Users can specify directories to watch, and the dashboard automatically discovers new progress files as they appear.
 
-- [ ] Add `--watch` CLI flag (repeatable) for specifying watch directories
-- [ ] Add `watch_dirs` config option with comma-separated paths
-- [ ] Implement precedence: CLI flags > config > current directory (default)
-- [ ] Create `pkg/web/watcher.go` using fsnotify for recursive directory watching
-- [ ] Filter events to only `progress-*.txt` file creates/modifies
-- [ ] Integrate watcher with SessionManager to auto-register new sessions
-- [ ] Add unit tests for watcher logic
+- [x] Add `--watch` CLI flag (repeatable) for specifying watch directories
+- [x] Add `watch_dirs` config option with comma-separated paths
+- [x] Implement precedence: CLI flags > config > current directory (default)
+- [x] Create `pkg/web/watcher.go` using fsnotify for recursive directory watching
+- [x] Filter events to only `progress-*.txt` file creates/modifies
+- [x] Integrate watcher with SessionManager to auto-register new sessions
+- [x] Add unit tests for watcher logic
 
 ### Task 5: Frontend Session Sidebar
 
