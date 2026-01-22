@@ -23,12 +23,12 @@ Implement the core session management layer that discovers progress files and de
 
 Implement file tailing for active sessions to stream log lines as events. This enables the dashboard to show live updates for sessions it didn't start, by watching the progress file rather than receiving events directly from the logger.
 
-- [ ] Create `pkg/web/tail.go` with Tailer that watches a file for new content
-- [ ] Implement line parsing that converts progress file lines to Event structs
-- [ ] Handle section headers (`--- section name ---`) and timestamp-prefixed lines
-- [ ] Integrate Tailer with Session - active sessions get a Tailer feeding their Buffer
-- [ ] Implement graceful stop when session completes (flock released)
-- [ ] Add unit tests for tailing and line parsing
+- [x] Create `pkg/web/tail.go` with Tailer that watches a file for new content
+- [x] Implement line parsing that converts progress file lines to Event structs
+- [x] Handle section headers (`--- section name ---`) and timestamp-prefixed lines
+- [x] Integrate Tailer with Session - active sessions get a Tailer feeding their Buffer
+- [x] Implement graceful stop when session completes (flock released)
+- [x] Add unit tests for tailing and line parsing
 
 ### Task 3: REST API for Sessions
 

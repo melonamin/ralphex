@@ -69,17 +69,31 @@ func (m *SessionManager) Discover(dir string) ([]string, error) {
 }
 
 // updateSession refreshes a session's state and metadata from its progress file.
+// handles starting/stopping tailing based on state transitions.
 func (m *SessionManager) updateSession(session *Session) error {
+	prevState := session.GetState()
+
 	// check if file is locked (active session)
 	active, err := IsActive(session.Path)
 	if err != nil {
 		return fmt.Errorf("check active state: %w", err)
 	}
 
+	newState := SessionStateCompleted
 	if active {
-		session.SetState(SessionStateActive)
-	} else {
-		session.SetState(SessionStateCompleted)
+		newState = SessionStateActive
+	}
+	session.SetState(newState)
+
+	// handle state transitions for tailing
+	if prevState != newState {
+		if newState == SessionStateActive && !session.IsTailing() {
+			// session became active, start tailing from current position
+			_ = session.StartTailing(false)
+		} else if newState == SessionStateCompleted && session.IsTailing() {
+			// session completed, stop tailing
+			session.StopTailing()
+		}
 	}
 
 	// parse metadata from file header
@@ -138,6 +152,54 @@ func (m *SessionManager) Close() {
 		session.Close()
 	}
 	m.sessions = make(map[string]*Session)
+}
+
+// StartTailingActive starts tailing for all active sessions.
+// for each active session not already tailing, starts tailing from the beginning
+// to populate the buffer with existing content.
+func (m *SessionManager) StartTailingActive() {
+	m.mu.RLock()
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.RUnlock()
+
+	for _, session := range sessions {
+		if session.GetState() == SessionStateActive && !session.IsTailing() {
+			_ = session.StartTailing(true) // read from beginning to populate buffer
+		}
+	}
+}
+
+// RefreshStates checks all sessions for state changes (active->completed).
+// stops tailing for sessions that have completed.
+func (m *SessionManager) RefreshStates() {
+	m.mu.RLock()
+	sessions := make([]*Session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.RUnlock()
+
+	for _, session := range sessions {
+		// only check sessions that are currently tailing
+		if !session.IsTailing() {
+			continue
+		}
+
+		// check if session is still active
+		active, err := IsActive(session.Path)
+		if err != nil {
+			continue
+		}
+
+		if !active {
+			// session completed, update state and stop tailing
+			session.SetState(SessionStateCompleted)
+			session.StopTailing()
+		}
+	}
 }
 
 // sessionIDFromPath derives a session ID from the progress file path.
