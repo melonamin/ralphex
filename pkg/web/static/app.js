@@ -650,6 +650,10 @@
             .then(function(sessions) {
                 state.sessions = sessions;
                 renderSessionList(sessions);
+                // auto-select first session if none is currently selected
+                if (!state.currentSessionId && sessions.length > 0) {
+                    selectSession(sessions[0].id);
+                }
             })
             .catch(function(err) {
                 clearElement(sessionList);
