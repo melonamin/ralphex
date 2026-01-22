@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/ini.v1"
 )
@@ -28,6 +29,7 @@ type Values struct {
 	TaskRetryCount       int
 	TaskRetryCountSet    bool // tracks if task_retry_count was explicitly set
 	PlansDir             string
+	WatchDirs            []string // directories to watch for progress files
 }
 
 // valuesLoader implements ValuesLoader with embedded filesystem fallback.
@@ -178,8 +180,27 @@ func (vl *valuesLoader) parseValuesFromBytes(data []byte) (Values, error) {
 	if key, err := section.GetKey("plans_dir"); err == nil {
 		values.PlansDir = key.String()
 	}
+	if key, err := section.GetKey("watch_dirs"); err == nil {
+		val := strings.TrimSpace(key.String())
+		if val != "" {
+			values.WatchDirs = parseCommaSeparatedList(val)
+		}
+	}
 
 	return values, nil
+}
+
+// parseCommaSeparatedList splits a comma-separated string into a list of trimmed strings.
+func parseCommaSeparatedList(val string) []string {
+	parts := strings.Split(val, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // mergeFrom merges non-empty values from src into dst.
@@ -220,5 +241,8 @@ func (dst *Values) mergeFrom(src *Values) {
 	}
 	if src.PlansDir != "" {
 		dst.PlansDir = src.PlansDir
+	}
+	if len(src.WatchDirs) > 0 {
+		dst.WatchDirs = src.WatchDirs
 	}
 }
