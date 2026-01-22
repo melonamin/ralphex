@@ -55,9 +55,9 @@ Add text search with highlighting and integrate the web server into the main CLI
 
 Verify the feature works end-to-end with the toy project and update documentation.
 
-- [ ] Run `./scripts/prep-toy-test.sh` to create test project
-- [ ] Execute `.bin/ralphex --serve docs/plans/fix-issues.md` and verify dashboard in browser
-- [ ] Verify: real-time streaming, phase transitions, collapsible sections, search highlighting
-- [ ] Test late-joining client receives history correctly
-- [ ] Update README.md with `--serve` flag documentation and example usage
-- [ ] Verify all tests pass and linter is clean
+- [x] Run `./scripts/prep-toy-test.sh` to create test project
+- [x] Execute `.bin/ralphex --serve docs/plans/fix-issues.md` and verify dashboard in browser
+- [x] Verify: real-time streaming, phase transitions, collapsible sections, search highlighting
+- [x] Test late-joining client receives history correctly
+- [x] Update README.md with `--serve` flag documentation and example usage
+- [x] Verify all tests pass and linter is clean

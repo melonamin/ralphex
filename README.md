@@ -41,6 +41,7 @@ ralphex solves both problems. Each task executes in a fresh Claude Code session 
 - **Automatic commits** - commits after each task and review fix
 - **Streaming output** - real-time progress with timestamps and colors
 - **Progress logging** - detailed execution logs for debugging
+- **Web dashboard** - browser-based real-time view with `--serve` flag
 - **Multiple modes** - full execution, review-only, or codex-only
 
 ## Quick Start
@@ -153,6 +154,12 @@ ralphex --codex-only
 
 # with custom max iterations
 ralphex --max-iterations=100 docs/plans/feature.md
+
+# with web dashboard
+ralphex --serve docs/plans/feature.md
+
+# web dashboard on custom port
+ralphex --serve --port 3000 docs/plans/feature.md
 ```
 
 ### Options
@@ -162,6 +169,8 @@ ralphex --max-iterations=100 docs/plans/feature.md
 | `-m, --max-iterations` | Maximum task iterations | 50 |
 | `-r, --review` | Skip task execution, run full review pipeline | false |
 | `-c, --codex-only` | Skip tasks and first review, run only codex loop | false |
+| `-s, --serve` | Start web dashboard for real-time streaming | false |
+| `-p, --port` | Web dashboard port (used with `--serve`) | 8080 |
 | `-d, --debug` | Enable debug logging | false |
 | `--no-color` | Disable color output | false |
 
@@ -333,6 +342,26 @@ Colors use 24-bit RGB (true color), supported natively by all modern terminals (
 ### Custom prompts
 
 Place custom prompt files in `~/.config/ralphex/prompts/` to override the built-in prompts. Missing files fall back to embedded defaults. See [Review Agents](#review-agents) section for agent customization.
+
+## Web Dashboard
+
+The `--serve` flag starts a browser-based dashboard for real-time monitoring of plan execution.
+
+```bash
+ralphex --serve docs/plans/feature.md
+# web dashboard: http://localhost:8080
+```
+
+### Features
+
+- **Real-time streaming** - SSE connection for live output updates
+- **Phase navigation** - filter by All/Task/Review/Codex phases
+- **Collapsible sections** - organized output with expand/collapse
+- **Text search** - find text with highlighting (keyboard: `/` to focus, `Escape` to clear)
+- **Auto-scroll** - follows output, click to disable
+- **Late-join support** - new clients receive full history
+
+The dashboard uses a dark theme with phase-specific colors matching terminal output. All file and stdout logging continues unchanged when using `--serve`.
 
 ## For LLMs
 
