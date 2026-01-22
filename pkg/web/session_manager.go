@@ -88,8 +88,8 @@ func (m *SessionManager) updateSession(session *Session) error {
 	// handle state transitions for tailing
 	if prevState != newState {
 		if newState == SessionStateActive && !session.IsTailing() {
-			// session became active, start tailing from current position
-			_ = session.StartTailing(false)
+			// session became active, start tailing from beginning to capture existing content
+			_ = session.StartTailing(true)
 		} else if newState == SessionStateCompleted && session.IsTailing() {
 			// session completed, stop tailing
 			session.StopTailing()
