@@ -33,9 +33,13 @@ type Session struct {
 	State    SessionState    // current state (active/completed)
 	Buffer   *Buffer         // event buffer for this session
 	Hub      *Hub            // event hub for SSE streaming
+	Tailer   *Tailer         // file tailer for reading new content (nil if not tailing)
 
 	// lastModified tracks the file's last modification time for change detection
 	lastModified time.Time
+
+	// stopTailCh signals the tail feeder goroutine to stop
+	stopTailCh chan struct{}
 }
 
 // NewSession creates a new session for the given progress file path.
@@ -93,8 +97,80 @@ func (s *Session) GetLastModified() time.Time {
 	return s.lastModified
 }
 
-// Close cleans up session resources.
+// StartTailing begins tailing the progress file and feeding events to buffer/hub.
+// if fromStart is true, reads from the beginning of the file; otherwise from the end.
+// does nothing if already tailing.
+func (s *Session) StartTailing(fromStart bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.Tailer != nil && s.Tailer.IsRunning() {
+		return nil // already tailing
+	}
+
+	s.Tailer = NewTailer(s.Path, DefaultTailerConfig())
+	if err := s.Tailer.Start(fromStart); err != nil {
+		s.Tailer = nil
+		return err
+	}
+
+	s.stopTailCh = make(chan struct{})
+	go s.feedEvents()
+
+	return nil
+}
+
+// StopTailing stops the tailer and event feeder goroutine.
+func (s *Session) StopTailing() {
+	s.mu.Lock()
+	if s.stopTailCh != nil {
+		close(s.stopTailCh)
+		s.stopTailCh = nil
+	}
+	tailer := s.Tailer
+	s.mu.Unlock()
+
+	if tailer != nil {
+		tailer.Stop()
+	}
+}
+
+// IsTailing returns whether the session is currently tailing its progress file.
+func (s *Session) IsTailing() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.Tailer != nil && s.Tailer.IsRunning()
+}
+
+// feedEvents reads events from the tailer and adds them to buffer/hub.
+func (s *Session) feedEvents() {
+	s.mu.RLock()
+	tailer := s.Tailer
+	stopCh := s.stopTailCh
+	s.mu.RUnlock()
+
+	if tailer == nil {
+		return
+	}
+
+	eventCh := tailer.Events()
+	for {
+		select {
+		case <-stopCh:
+			return
+		case event, ok := <-eventCh:
+			if !ok {
+				return
+			}
+			s.Buffer.Add(event)
+			s.Hub.Broadcast(event)
+		}
+	}
+}
+
+// Close cleans up session resources including the tailer.
 func (s *Session) Close() {
+	s.StopTailing()
 	s.Hub.Close()
 	s.Buffer.Clear()
 }
