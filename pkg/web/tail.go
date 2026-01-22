@@ -306,7 +306,8 @@ func detectEventType(text string) EventType {
 	return EventTypeOutput
 }
 
-// extractSignalFromText extracts signal name from <<<RALPHEX:SIGNAL>>> format.
+// extractSignalFromText extracts normalized signal name from <<<RALPHEX:SIGNAL>>> format.
+// returns "COMPLETED" for ALL_TASKS_DONE, "FAILED" for TASK_FAILED, or raw signal for others.
 func extractSignalFromText(text string) string {
 	const prefix = "<<<RALPHEX:"
 	const suffix = ">>>"
@@ -321,5 +322,15 @@ func extractSignalFromText(text string) string {
 		return ""
 	}
 
-	return text[start+len(prefix) : start+end]
+	rawSignal := text[start+len(prefix) : start+end]
+
+	// normalize signal names to match broadcast_logger output
+	switch rawSignal {
+	case "ALL_TASKS_DONE":
+		return "COMPLETED"
+	case "TASK_FAILED", "ALL_TASKS_FAILED":
+		return "FAILED"
+	default:
+		return rawSignal
+	}
 }

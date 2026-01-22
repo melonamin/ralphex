@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 
 	// initial discovery
 	for _, dir := range w.dirs {
-		_, _ = w.sm.Discover(dir)
+		if _, err := w.sm.Discover(dir); err != nil {
+			log.Printf("[WARN] initial discovery failed for %s: %v", dir, err)
+		}
 	}
 
 	// start tailing for active sessions
@@ -114,7 +117,7 @@ func (w *Watcher) run(ctx context.Context) error {
 				return nil
 			}
 			// log error but continue watching
-			_ = err
+			log.Printf("[WARN] fsnotify error: %v", err)
 		}
 	}
 }
@@ -123,40 +126,62 @@ func (w *Watcher) run(ctx context.Context) error {
 func (w *Watcher) handleEvent(event fsnotify.Event) {
 	// filter for progress-*.txt files only
 	if !isProgressFile(event.Name) {
-		// check if it's a new directory
-		if event.Has(fsnotify.Create) {
-			if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-				// add new directory to watch
-				_ = w.addRecursive(event.Name)
-			}
-		}
+		w.handleNonProgressEvent(event)
 		return
 	}
 
 	// handle create or write events
 	if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
-		dir := filepath.Dir(event.Name)
-		ids, err := w.sm.Discover(dir)
-		if err != nil {
-			return
-		}
-
-		// start tailing for any newly active sessions
-		for _, id := range ids {
-			session := w.sm.Get(id)
-			if session == nil {
-				continue
-			}
-			if session.GetState() == SessionStateActive && !session.IsTailing() {
-				_ = session.StartTailing(true)
-			}
-		}
+		w.handleProgressFileChange(event.Name)
 	}
 
 	// handle remove events
 	if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
 		id := sessionIDFromPath(event.Name)
 		w.sm.Remove(id)
+	}
+}
+
+// handleNonProgressEvent handles events for non-progress files (e.g., new directories).
+func (w *Watcher) handleNonProgressEvent(event fsnotify.Event) {
+	if !event.Has(fsnotify.Create) {
+		return
+	}
+	info, err := os.Stat(event.Name)
+	if err != nil || !info.IsDir() {
+		return
+	}
+	if err := w.addRecursive(event.Name); err != nil {
+		log.Printf("[WARN] failed to watch new directory %s: %v", event.Name, err)
+	}
+}
+
+// handleProgressFileChange handles create/write events for progress files.
+func (w *Watcher) handleProgressFileChange(path string) {
+	dir := filepath.Dir(path)
+	ids, err := w.sm.Discover(dir)
+	if err != nil {
+		log.Printf("[WARN] discovery failed for %s: %v", dir, err)
+		return
+	}
+
+	// start tailing for any newly active sessions
+	for _, id := range ids {
+		w.startTailingIfNeeded(id)
+	}
+}
+
+// startTailingIfNeeded starts tailing for a session if it's active and not already tailing.
+func (w *Watcher) startTailingIfNeeded(id string) {
+	session := w.sm.Get(id)
+	if session == nil {
+		return
+	}
+	if session.GetState() != SessionStateActive || session.IsTailing() {
+		return
+	}
+	if err := session.StartTailing(true); err != nil {
+		log.Printf("[WARN] failed to start tailing for session %s: %v", id, err)
 	}
 }
 
