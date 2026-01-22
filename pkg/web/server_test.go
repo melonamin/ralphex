@@ -212,3 +212,34 @@ func TestServer_StaticFiles(t *testing.T) {
 	assert.Contains(t, body, "/static/styles.css")
 	assert.Contains(t, body, "/static/app.js")
 }
+
+func TestServer_SSE_LateJoiningClient(t *testing.T) {
+	hub := NewHub()
+	buffer := NewBuffer(100)
+	srv := NewServer(ServerConfig{}, hub, buffer)
+
+	// broadcast some events before any client connects
+	hub.Broadcast(NewOutputEvent(progress.PhaseTask, "event 1"))
+	buffer.Add(NewOutputEvent(progress.PhaseTask, "event 1"))
+
+	hub.Broadcast(NewSectionEvent(progress.PhaseReview, "Review Section"))
+	buffer.Add(NewSectionEvent(progress.PhaseReview, "Review Section"))
+
+	hub.Broadcast(NewOutputEvent(progress.PhaseReview, "event 2"))
+	buffer.Add(NewOutputEvent(progress.PhaseReview, "event 2"))
+
+	// now a late-joining client connects
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/events", http.NoBody).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	srv.handleEvents(w, req)
+
+	body := w.Body.String()
+	// late-joining client should receive all historical events
+	assert.Contains(t, body, "event 1")
+	assert.Contains(t, body, "Review Section")
+	assert.Contains(t, body, "event 2")
+}

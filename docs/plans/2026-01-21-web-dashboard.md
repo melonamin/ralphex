@@ -23,11 +23,11 @@ Create the web package with basic HTTP server infrastructure. This establishes t
 
 Implement the streaming infrastructure that connects execution output to web clients. The BroadcastLogger wraps the existing Logger using decorator pattern, so all output goes to file + stdout + SSE clients.
 
-- [ ] Create `pkg/web/broadcast_logger.go` implementing processor.Logger interface
-- [ ] BroadcastLogger wraps inner Logger and broadcasts events to hub + buffer
-- [ ] Implement SSE handler at `/events` that sends history on connect, then streams new events
-- [ ] Add unit tests for BroadcastLogger verifying all Logger methods broadcast correctly
-- [ ] Add integration test verifying SSE connection receives events
+- [x] Create `pkg/web/broadcast_logger.go` implementing processor.Logger interface
+- [x] BroadcastLogger wraps inner Logger and broadcasts events to hub + buffer
+- [x] Implement SSE handler at `/events` that sends history on connect, then streams new events
+- [x] Add unit tests for BroadcastLogger verifying all Logger methods broadcast correctly
+- [x] Add integration test verifying SSE connection receives events
 
 ### Task 3: Frontend Dashboard
 
