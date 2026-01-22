@@ -291,6 +291,119 @@ Branch: main
 	})
 }
 
+func TestLoadProgressFileIntoBuffer(t *testing.T) {
+	t.Run("loads completed session content into buffer", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "progress-test.txt")
+
+		content := `# Ralphex Progress Log
+Plan: docs/plan.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:00:00
+------------------------------------------------------------
+
+--- Task 1 ---
+[26-01-22 10:00:01] executing task
+[26-01-22 10:00:02] task output line 1
+[26-01-22 10:00:03] task output line 2
+--- Review ---
+[26-01-22 10:00:04] review started
+[26-01-22 10:00:05] <<<RALPHEX:REVIEW_DONE>>>
+`
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		buffer := NewBuffer(100)
+		loadProgressFileIntoBuffer(path, buffer)
+
+		// verify events were loaded
+		events := buffer.All()
+		assert.GreaterOrEqual(t, len(events), 5, "expected at least 5 events")
+
+		// verify sections are present
+		var foundTaskSection, foundReviewSection, foundSignal bool
+		for _, e := range events {
+			if e.Type == EventTypeSection && e.Section == "Task 1" {
+				foundTaskSection = true
+			}
+			if e.Type == EventTypeSection && e.Section == "Review" {
+				foundReviewSection = true
+			}
+			if e.Type == EventTypeSignal && e.Signal == "REVIEW_DONE" {
+				foundSignal = true
+			}
+		}
+		assert.True(t, foundTaskSection, "expected Task 1 section event")
+		assert.True(t, foundReviewSection, "expected Review section event")
+		assert.True(t, foundSignal, "expected REVIEW_DONE signal event")
+	})
+
+	t.Run("handles missing file gracefully", func(t *testing.T) {
+		buffer := NewBuffer(100)
+		loadProgressFileIntoBuffer("/nonexistent/file.txt", buffer)
+
+		// should not panic, buffer should remain empty
+		assert.Equal(t, 0, buffer.Count())
+	})
+
+	t.Run("skips header lines", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "progress-test.txt")
+
+		content := `# Ralphex Progress Log
+Plan: docs/plan.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:00:00
+------------------------------------------------------------
+[26-01-22 10:00:01] first real line
+`
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+		buffer := NewBuffer(100)
+		loadProgressFileIntoBuffer(path, buffer)
+
+		events := buffer.All()
+		assert.Len(t, events, 1)
+		assert.Equal(t, "first real line", events[0].Text)
+	})
+}
+
+func TestSessionManager_DiscoverLoadsCompletedSessionContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "progress-completed.txt")
+
+	// create a progress file with content (simulating a completed session)
+	content := `# Ralphex Progress Log
+Plan: docs/plan.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:00:00
+------------------------------------------------------------
+
+--- Task 1 ---
+[26-01-22 10:00:01] task output
+[26-01-22 10:00:02] <<<RALPHEX:ALL_TASKS_DONE>>>
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	m := NewSessionManager()
+
+	// discover the session (it's not locked, so will be completed)
+	_, err := m.Discover(dir)
+	require.NoError(t, err)
+
+	session := m.Get("completed")
+	require.NotNil(t, session)
+
+	// verify the session state is completed
+	assert.Equal(t, SessionStateCompleted, session.GetState())
+
+	// verify the buffer has content loaded
+	events := session.Buffer.All()
+	assert.GreaterOrEqual(t, len(events), 2, "expected at least 2 events in buffer for completed session")
+}
+
 // helper to create a progress file with standard header
 func createProgressFile(t *testing.T, path, plan, branch, mode string) {
 	t.Helper()
