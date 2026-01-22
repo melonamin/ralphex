@@ -349,6 +349,10 @@ Colors use 24-bit RGB (true color), supported natively by all modern terminals (
 
 Place custom prompt files in `~/.config/ralphex/prompts/` to override the built-in prompts. Missing files fall back to embedded defaults. See [Review Agents](#review-agents) section for agent customization.
 
+## For LLMs
+
+See [llms.txt](llms.txt) for LLM-optimized documentation and Claude Code integration.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file.
