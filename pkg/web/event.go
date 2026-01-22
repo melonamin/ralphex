@@ -121,11 +121,21 @@ func NewIterationStartEvent(phase progress.Phase, iterationNum int, text string)
 	}
 }
 
-// JSON returns the event as JSON bytes for SSE streaming.
-func (e Event) JSON() ([]byte, error) {
-	data, err := json.Marshal(e)
+// MarshalJSON implements json.Marshaler for SSE streaming.
+// this allows Event to be used directly with json.Marshal.
+func (e Event) MarshalJSON() ([]byte, error) {
+	// use a type alias to avoid infinite recursion
+	type eventAlias Event
+	data, err := json.Marshal(eventAlias(e))
 	if err != nil {
 		return nil, fmt.Errorf("marshal event: %w", err)
 	}
 	return data, nil
+}
+
+// JSON returns the event as JSON bytes for SSE streaming.
+//
+// Deprecated: use json.Marshal(event) instead.
+func (e Event) JSON() ([]byte, error) {
+	return e.MarshalJSON()
 }

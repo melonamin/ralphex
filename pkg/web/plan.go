@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -75,10 +76,7 @@ func ParsePlan(content string) (*Plan, error) {
 				plan.Tasks = append(plan.Tasks, *currentTask)
 			}
 
-			taskNum := 0
-			if _, err := parseTaskNum(matches[1]); err == nil {
-				taskNum, _ = parseTaskNum(matches[1])
-			}
+			taskNum, _ := parseTaskNum(matches[1])
 
 			currentTask = &Task{
 				Number:     taskNum,
@@ -134,11 +132,11 @@ func (p *Plan) JSON() ([]byte, error) {
 
 // parseTaskNum extracts task number from string.
 func parseTaskNum(s string) (int, error) {
-	var num int
-	if err := json.Unmarshal([]byte(s), &num); err != nil {
+	n, err := strconv.Atoi(s)
+	if err != nil {
 		return 0, fmt.Errorf("parse task number: %w", err)
 	}
-	return num, nil
+	return n, nil
 }
 
 // determineTaskStatus calculates task status based on checkbox states.

@@ -53,7 +53,8 @@ func TestBroadcastLogger_Print(t *testing.T) {
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
 	// subscribe to receive events
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	bl.Print("hello %s", "world")
 
@@ -86,7 +87,8 @@ func TestBroadcastLogger_PrintRaw(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	bl.PrintRaw("raw %d", 42)
 
@@ -112,7 +114,8 @@ func TestBroadcastLogger_PrintSection(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	bl.PrintSection("Test Section")
 
@@ -139,7 +142,8 @@ func TestBroadcastLogger_PrintAligned(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	bl.PrintAligned("aligned text")
 
@@ -154,6 +158,35 @@ func TestBroadcastLogger_PrintAligned(t *testing.T) {
 		assert.Equal(t, "aligned text", e.Text)
 	case <-time.After(time.Second):
 		t.Fatal("did not receive event")
+	}
+}
+
+func TestBroadcastLogger_PrintAligned_Signal(t *testing.T) {
+	mockLogger := &mocks.LoggerMock{
+		PrintAlignedFunc: func(string) {},
+	}
+	hub := NewHub()
+	buffer := NewBuffer(100)
+	bl := NewBroadcastLogger(mockLogger, hub, buffer)
+
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
+
+	bl.PrintAligned("task done <<<RALPHEX:ALL_TASKS_DONE>>>")
+
+	select {
+	case e1 := <-ch:
+		assert.Equal(t, EventTypeOutput, e1.Type)
+	case <-time.After(time.Second):
+		t.Fatal("did not receive output event")
+	}
+
+	select {
+	case e2 := <-ch:
+		assert.Equal(t, EventTypeSignal, e2.Type)
+		assert.Equal(t, "COMPLETED", e2.Signal)
+	case <-time.After(time.Second):
+		t.Fatal("did not receive signal event")
 	}
 }
 
@@ -180,7 +213,8 @@ func TestBroadcastLogger_PhaseAffectsEvents(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	// print with default phase (task)
 	bl.Print("task message")
@@ -203,8 +237,10 @@ func TestBroadcastLogger_BufferAndHubBothReceive(t *testing.T) {
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
 	// subscribe two clients
-	ch1 := hub.Subscribe()
-	ch2 := hub.Subscribe()
+	ch1, err := hub.Subscribe()
+	require.NoError(t, err)
+	ch2, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	bl.Print("message for all")
 
@@ -248,7 +284,8 @@ func TestBroadcastLogger_PrintSection_TaskBoundaryEvents(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	// emit task iteration section - should emit task start + section events
 	bl.PrintSection("task iteration 1")
@@ -291,7 +328,8 @@ func TestBroadcastLogger_PrintSection_IterationEvents(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	// test claude review iteration pattern
 	bl.SetPhase(progress.PhaseReview)
@@ -326,7 +364,8 @@ func TestBroadcastLogger_PrintSection_NoExtraEvents(t *testing.T) {
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	ch := hub.Subscribe()
+	ch, err := hub.Subscribe()
+	require.NoError(t, err)
 
 	// regular section that doesn't match any pattern
 	bl.PrintSection("review: all findings")

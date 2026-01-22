@@ -20,12 +20,14 @@ func TestNewHub(t *testing.T) {
 func TestHub_Subscribe(t *testing.T) {
 	h := NewHub()
 
-	ch := h.Subscribe()
+	ch, err := h.Subscribe()
+	require.NoError(t, err)
 	assert.NotNil(t, ch)
 	assert.Equal(t, 1, h.ClientCount())
 
 	// subscribe another
-	ch2 := h.Subscribe()
+	ch2, err := h.Subscribe()
+	require.NoError(t, err)
 	assert.NotNil(t, ch2)
 	assert.Equal(t, 2, h.ClientCount())
 }
@@ -33,7 +35,8 @@ func TestHub_Subscribe(t *testing.T) {
 func TestHub_Unsubscribe(t *testing.T) {
 	h := NewHub()
 
-	ch := h.Subscribe()
+	ch, err := h.Subscribe()
+	require.NoError(t, err)
 	assert.Equal(t, 1, h.ClientCount())
 
 	h.Unsubscribe(ch)
@@ -46,7 +49,8 @@ func TestHub_Unsubscribe(t *testing.T) {
 
 func TestHub_Unsubscribe_SafeForMultipleCalls(t *testing.T) {
 	h := NewHub()
-	ch := h.Subscribe()
+	ch, err := h.Subscribe()
+	require.NoError(t, err)
 
 	// first unsubscribe
 	h.Unsubscribe(ch)
@@ -60,8 +64,10 @@ func TestHub_Unsubscribe_SafeForMultipleCalls(t *testing.T) {
 func TestHub_Broadcast(t *testing.T) {
 	h := NewHub()
 
-	ch1 := h.Subscribe()
-	ch2 := h.Subscribe()
+	ch1, err := h.Subscribe()
+	require.NoError(t, err)
+	ch2, err := h.Subscribe()
+	require.NoError(t, err)
 
 	event := NewOutputEvent(progress.PhaseTask, "test message")
 	h.Broadcast(event)
@@ -85,7 +91,8 @@ func TestHub_Broadcast(t *testing.T) {
 func TestHub_Broadcast_DropsForFullClient(t *testing.T) {
 	h := NewHub()
 
-	ch := h.Subscribe()
+	ch, err := h.Subscribe()
+	require.NoError(t, err)
 
 	// fill the channel buffer (256 events)
 	for range 300 {
@@ -117,10 +124,12 @@ func TestHub_ClientCount(t *testing.T) {
 
 	assert.Equal(t, 0, h.ClientCount())
 
-	ch1 := h.Subscribe()
+	ch1, err := h.Subscribe()
+	require.NoError(t, err)
 	assert.Equal(t, 1, h.ClientCount())
 
-	ch2 := h.Subscribe()
+	ch2, err := h.Subscribe()
+	require.NoError(t, err)
 	assert.Equal(t, 2, h.ClientCount())
 
 	h.Unsubscribe(ch1)
@@ -133,9 +142,12 @@ func TestHub_ClientCount(t *testing.T) {
 func TestHub_Close(t *testing.T) {
 	h := NewHub()
 
-	ch1 := h.Subscribe()
-	ch2 := h.Subscribe()
-	ch3 := h.Subscribe()
+	ch1, err := h.Subscribe()
+	require.NoError(t, err)
+	ch2, err := h.Subscribe()
+	require.NoError(t, err)
+	ch3, err := h.Subscribe()
+	require.NoError(t, err)
 
 	assert.Equal(t, 3, h.ClientCount())
 
@@ -162,10 +174,12 @@ func TestHub_Concurrency(t *testing.T) {
 
 	for range 20 {
 		wg.Go(func() {
-			ch := h.Subscribe()
-			chMu.Lock()
-			channels = append(channels, ch)
-			chMu.Unlock()
+			ch, err := h.Subscribe()
+			if err == nil {
+				chMu.Lock()
+				channels = append(channels, ch)
+				chMu.Unlock()
+			}
 		})
 	}
 
@@ -210,4 +224,36 @@ func TestHub_BroadcastToNoClients(t *testing.T) {
 	assert.NotPanics(t, func() {
 		h.Broadcast(NewOutputEvent(progress.PhaseTask, "nobody listening"))
 	})
+}
+
+func TestHub_Subscribe_MaxClientsExceeded(t *testing.T) {
+	h := NewHub()
+
+	// subscribe up to the limit
+	channels := make([]chan Event, 0, MaxClients)
+	for range MaxClients {
+		ch, err := h.Subscribe()
+		require.NoError(t, err)
+		channels = append(channels, ch)
+	}
+
+	assert.Equal(t, MaxClients, h.ClientCount())
+
+	// next subscribe should fail
+	ch, err := h.Subscribe()
+	require.ErrorIs(t, err, ErrMaxClientsExceeded)
+	assert.Nil(t, ch)
+
+	// client count should not change
+	assert.Equal(t, MaxClients, h.ClientCount())
+
+	// unsubscribe one client
+	h.Unsubscribe(channels[0])
+	assert.Equal(t, MaxClients-1, h.ClientCount())
+
+	// now subscribe should work again
+	ch, err = h.Subscribe()
+	require.NoError(t, err)
+	assert.NotNil(t, ch)
+	assert.Equal(t, MaxClients, h.ClientCount())
 }

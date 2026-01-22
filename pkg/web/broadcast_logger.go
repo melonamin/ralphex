@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/umputun/ralphex/pkg/processor"
 	"github.com/umputun/ralphex/pkg/progress"
@@ -109,6 +110,10 @@ func (b *BroadcastLogger) PrintSection(name string) {
 func (b *BroadcastLogger) PrintAligned(text string) {
 	b.inner.PrintAligned(text)
 	b.broadcast(NewOutputEvent(b.phase, text))
+
+	if signal := extractTerminalSignal(text); signal != "" {
+		b.broadcast(NewSignalEvent(b.phase, signal))
+	}
 }
 
 // Path returns the progress file path.
@@ -128,4 +133,15 @@ func formatText(format string, args ...any) string {
 		return format
 	}
 	return fmt.Sprintf(format, args...)
+}
+
+func extractTerminalSignal(text string) string {
+	switch {
+	case strings.Contains(text, processor.SignalCompleted):
+		return "COMPLETED"
+	case strings.Contains(text, processor.SignalFailed):
+		return "FAILED"
+	default:
+		return ""
+	}
 }

@@ -1,4 +1,11 @@
 // ralphex dashboard - SSE streaming and UI handling
+//
+// XSS Prevention Strategy:
+// - All user/server-provided text is rendered via textContent or createTextNode
+// - escapeHtml() is used for any text embedded in HTML strings (export feature)
+// - innerHTML is only used with static HTML or previously-sanitized DOM clones
+// - Search highlighting uses DOM manipulation, not string interpolation
+//
 (function() {
     'use strict';
 
@@ -42,7 +49,8 @@
         // SSE connection state
         reconnectDelay: SSE_INITIAL_RECONNECT_MS,
         currentEventSource: null,
-        isFirstConnect: true
+        isFirstConnect: true,
+        resetOnNextEvent: false
     };
 
     // initialize plan panel state
@@ -81,7 +89,12 @@
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    // escape HTML special characters to prevent XSS
+    /**
+     * Escape HTML special characters to prevent XSS attacks.
+     * Uses the browser's built-in text node encoding for safety.
+     * @param {string} str - The untrusted string to escape
+     * @returns {string} HTML-safe string with special chars encoded
+     */
     function escapeHtml(str) {
         if (!str) return '';
         var div = document.createElement('div');
@@ -89,7 +102,14 @@
         return div.innerHTML;
     }
 
-    // set text content with optional search highlighting
+    /**
+     * Set text content with optional search highlighting.
+     * XSS-safe: uses textContent and createTextNode for untrusted text,
+     * only injects highlight spans which are safe DOM elements.
+     * @param {Element} element - The DOM element to update
+     * @param {string} text - The text content (may be untrusted)
+     * @param {string} term - The search term to highlight
+     */
     function setContentWithHighlight(element, text, term) {
         element.textContent = '';
 
@@ -218,10 +238,13 @@
     }
 
     // finalize section duration when a new section starts
+    // also cleans up sectionStartTimes to prevent memory growth
     function finalizePreviousSectionDuration() {
         if (state.currentSection) {
             var sectionId = state.currentSection.dataset.sectionId;
             updateSectionDuration(sectionId);
+            // clean up the start time entry to prevent memory growth
+            delete state.sectionStartTimes[sectionId];
         }
     }
 
@@ -410,6 +433,7 @@
             showConnecting();
         } else {
             showReconnecting();
+            state.resetOnNextEvent = true;
         }
 
         var source = new EventSource('/events');
@@ -424,6 +448,10 @@
         source.onmessage = function(e) {
             try {
                 var event = JSON.parse(e.data);
+                if (state.resetOnNextEvent) {
+                    resetOutputState();
+                    state.resetOnNextEvent = false;
+                }
                 renderEvent(event);
             } catch (err) {
                 console.error('parse error:', err);
@@ -561,6 +589,19 @@
         }
     }
 
+    function resetOutputState() {
+        clearElement(output);
+        state.currentSection = null;
+        state.sectionStartTimes = {};
+        state.sectionCounter = 0;
+        state.executionStartTime = null;
+        if (state.elapsedTimerInterval) {
+            clearInterval(state.elapsedTimerInterval);
+            state.elapsedTimerInterval = null;
+        }
+        elapsedTimeEl.textContent = '';
+    }
+
     // create plan loading/error message element
     function createPlanMessage(text) {
         const div = document.createElement('div');
@@ -589,7 +630,12 @@
             });
     }
 
-    // render plan to plan panel using DOM methods
+    /**
+     * Render plan to plan panel using DOM methods.
+     * XSS-safe: uses textContent for all user-provided text,
+     * never uses innerHTML with untrusted content.
+     * @param {Object} plan - The plan data from the API
+     */
     function renderPlan(plan) {
         clearElement(planContent);
 
@@ -824,21 +870,18 @@
         };
     }
 
-    // build export HTML document - uses escapeHtml to prevent XSS from user content
-    function buildExportHtml(data, clones) {
-        var safeTitle = escapeHtml(data.title);
-        var safePlanName = escapeHtml(data.planName);
-        var safeBranch = escapeHtml(data.branch);
-        var safeElapsed = escapeHtml(data.elapsed);
-        var safeStatus = escapeHtml(data.status);
-        var safeStatusClass = escapeHtml(data.statusClass);
-
+    // build export HTML head section
+    function buildExportHead(safeTitle) {
         return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
             '<meta charset="UTF-8">\n' +
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
             '<title>' + safeTitle + ' - Export</title>\n' +
-            '<style>\n' + getExportCss() + '</style>\n</head>\n<body>\n' +
-            '<header>\n' +
+            '<style>\n' + getExportCss() + '</style>\n</head>\n';
+    }
+
+    // build export HTML header section
+    function buildExportHeader(safeElapsed, safeStatus, safeStatusClass, safePlanName, safeBranch) {
+        return '<header>\n' +
             '<div class="header-top">\n' +
             '<h1>Ralphex Dashboard</h1>\n' +
             '<div class="status-area">\n' +
@@ -848,8 +891,12 @@
             '<div class="info">\n' +
             '<span class="plan">' + safePlanName + '</span>\n' +
             '<span class="branch">' + safeBranch + '</span>\n' +
-            '</div>\n</header>\n' +
-            '<nav class="phase-nav">\n' +
+            '</div>\n</header>\n';
+    }
+
+    // build export HTML navigation section
+    function buildExportNav() {
+        return '<nav class="phase-nav">\n' +
             '<button class="phase-tab active" data-phase="all">All</button>\n' +
             '<button class="phase-tab" data-phase="task">Implementation</button>\n' +
             '<button class="phase-tab" data-phase="review">Claude Review</button>\n' +
@@ -861,8 +908,12 @@
             '<div class="search-bar">\n' +
             '<input type="text" id="search" placeholder="Search... (press / to focus)" autocomplete="off">\n' +
             '<span class="search-hint">Press Escape to clear, P to toggle plan</span>\n' +
-            '</div>\n' +
-            '<div class="main-container">\n' +
+            '</div>\n';
+    }
+
+    // build export HTML main content section
+    function buildExportMain(clones) {
+        return '<div class="main-container">\n' +
             '<aside class="plan-panel">\n' +
             '<div class="plan-panel-header">\n' +
             '<span class="plan-panel-title">Plan</span>\n' +
@@ -875,6 +926,22 @@
             '</main>\n</div>\n' +
             '<script>\n' + getExportJs() + '\n<\/script>\n' +
             '</body>\n</html>';
+    }
+
+    // build export HTML document - uses escapeHtml to prevent XSS from user content
+    function buildExportHtml(data, clones) {
+        var safeTitle = escapeHtml(data.title);
+        var safePlanName = escapeHtml(data.planName);
+        var safeBranch = escapeHtml(data.branch);
+        var safeElapsed = escapeHtml(data.elapsed);
+        var safeStatus = escapeHtml(data.status);
+        var safeStatusClass = escapeHtml(data.statusClass);
+
+        return buildExportHead(safeTitle) +
+            '<body>\n' +
+            buildExportHeader(safeElapsed, safeStatus, safeStatusClass, safePlanName, safeBranch) +
+            buildExportNav() +
+            buildExportMain(clones);
     }
 
     // trigger file download
