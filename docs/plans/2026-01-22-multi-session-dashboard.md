@@ -57,11 +57,11 @@ Add recursive directory watching for multi-project monitoring. Users can specify
 
 Update the web UI to display a sidebar with all discovered sessions. Users can click a session to view its output, with visual indicators distinguishing active from completed sessions.
 
-- [ ] Add session sidebar HTML structure to `pkg/web/templates/base.html`
-- [ ] Implement `fetchSessions()` in app.js calling `/api/sessions`
-- [ ] Render session list sorted by recency (most recent first)
-- [ ] Add visual indicators: pulsing dot for active, checkmark for completed
-- [ ] Implement click-to-switch that updates SSE connection to selected session
-- [ ] Persist selected session in URL hash or localStorage
-- [ ] Update styles.css with sidebar styling (collapsible, responsive)
-- [ ] Poll `/api/sessions` periodically (every 5s) to discover new sessions
+- [x] Add session sidebar HTML structure to `pkg/web/templates/base.html`
+- [x] Implement `fetchSessions()` in app.js calling `/api/sessions`
+- [x] Render session list sorted by recency (most recent first)
+- [x] Add visual indicators: pulsing dot for active, checkmark for completed
+- [x] Implement click-to-switch that updates SSE connection to selected session
+- [x] Persist selected session in URL hash or localStorage
+- [x] Update styles.css with sidebar styling (collapsible, responsive)
+- [x] Poll `/api/sessions` periodically (every 5s) to discover new sessions
