@@ -25,9 +25,20 @@
     const expandAllBtn = document.getElementById('expand-all');
     const collapseAllBtn = document.getElementById('collapse-all');
 
+    // session sidebar elements
+    const sessionSidebar = document.getElementById('session-sidebar');
+    const sessionList = document.getElementById('session-list');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const mainWrapper = document.getElementById('main-wrapper');
+    const planNameEl = document.getElementById('plan-name');
+    const branchNameEl = document.getElementById('branch-name');
+
     // SSE reconnection constants
     var SSE_INITIAL_RECONNECT_MS = 1000;
     var SSE_MAX_RECONNECT_MS = 30000;
+
+    // session polling interval
+    var SESSION_POLL_INTERVAL_MS = 5000;
 
     // application state - encapsulated for easier testing and debugging
     var state = {
@@ -38,7 +49,13 @@
         searchTerm: '',
         searchTimeout: null,
         planCollapsed: localStorage.getItem('planCollapsed') === 'true',
+        sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
         planData: null,
+
+        // session state
+        sessions: [],
+        currentSessionId: null,
+        sessionPollInterval: null,
 
         // timing state
         executionStartTime: null,
@@ -58,6 +75,26 @@
         mainContainer.classList.add('plan-collapsed');
         planToggle.textContent = '▶';
     }
+
+    // initialize sidebar state
+    if (state.sidebarCollapsed) {
+        document.body.classList.add('sidebar-collapsed');
+        sidebarToggle.textContent = '▶';
+    }
+
+    // initialize current session from URL hash or localStorage
+    function initCurrentSession() {
+        var hash = window.location.hash.slice(1);
+        if (hash) {
+            state.currentSessionId = hash;
+        } else {
+            var saved = localStorage.getItem('currentSessionId');
+            if (saved) {
+                state.currentSessionId = saved;
+            }
+        }
+    }
+    initCurrentSession();
 
     // format timestamp for display (time only)
     function formatTimestamp(ts) {
@@ -436,7 +473,12 @@
             state.resetOnNextEvent = true;
         }
 
-        var source = new EventSource('/events');
+        var url = '/events';
+        if (state.currentSessionId) {
+            url += '?session=' + encodeURIComponent(state.currentSessionId);
+        }
+
+        var source = new EventSource(url);
         state.currentEventSource = source;
 
         source.onopen = function() {
@@ -582,6 +624,257 @@
         }
     }
 
+    // toggle session sidebar
+    function toggleSessionSidebar() {
+        state.sidebarCollapsed = !state.sidebarCollapsed;
+        localStorage.setItem('sidebarCollapsed', state.sidebarCollapsed);
+
+        if (state.sidebarCollapsed) {
+            document.body.classList.add('sidebar-collapsed');
+            sidebarToggle.textContent = '▶';
+        } else {
+            document.body.classList.remove('sidebar-collapsed');
+            sidebarToggle.textContent = '◀';
+        }
+    }
+
+    // fetch sessions from API
+    function fetchSessions() {
+        fetch('/api/sessions')
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('Sessions not available');
+                }
+                return response.json();
+            })
+            .then(function(sessions) {
+                state.sessions = sessions;
+                renderSessionList(sessions);
+            })
+            .catch(function(err) {
+                clearElement(sessionList);
+                var msg = document.createElement('div');
+                msg.className = 'session-loading';
+                msg.textContent = 'No sessions found';
+                sessionList.appendChild(msg);
+                console.log('Sessions fetch:', err.message);
+            });
+    }
+
+    // format relative time for display
+    function formatRelativeTime(date) {
+        var now = Date.now();
+        var diff = now - new Date(date).getTime();
+
+        if (diff < 0) return 'just now';
+
+        var seconds = Math.floor(diff / 1000);
+        var minutes = Math.floor(seconds / 60);
+        var hours = Math.floor(minutes / 60);
+        var days = Math.floor(hours / 24);
+
+        if (days > 0) {
+            return days + 'd ago';
+        } else if (hours > 0) {
+            return hours + 'h ago';
+        } else if (minutes > 0) {
+            return minutes + 'm ago';
+        } else {
+            return 'just now';
+        }
+    }
+
+    // extract plan name from path
+    function extractPlanName(path) {
+        if (!path) return 'Unknown';
+        var parts = path.split('/');
+        var filename = parts[parts.length - 1];
+        return filename.replace(/\.md$/i, '');
+    }
+
+    /**
+     * Render session list to sidebar.
+     * XSS-safe: uses textContent for all user-provided text.
+     * @param {Array} sessions - Array of session objects from API
+     */
+    function renderSessionList(sessions) {
+        clearElement(sessionList);
+
+        if (!sessions || sessions.length === 0) {
+            var msg = document.createElement('div');
+            msg.className = 'session-loading';
+            msg.textContent = 'No sessions found';
+            sessionList.appendChild(msg);
+            return;
+        }
+
+        // sessions are already sorted by recency from API
+        sessions.forEach(function(session) {
+            var item = document.createElement('div');
+            item.className = 'session-item';
+            item.dataset.sessionId = session.id;
+
+            if (session.id === state.currentSessionId) {
+                item.classList.add('selected');
+            }
+
+            // status indicator
+            var indicator = document.createElement('span');
+            indicator.className = 'session-indicator';
+            if (session.state === 'active') {
+                indicator.classList.add('active');
+                indicator.title = 'Active session';
+            } else {
+                indicator.classList.add('completed');
+                indicator.title = 'Completed session';
+            }
+
+            // session info container
+            var info = document.createElement('div');
+            info.className = 'session-info';
+
+            // plan name
+            var name = document.createElement('div');
+            name.className = 'session-name';
+            name.textContent = extractPlanName(session.planPath);
+
+            // branch and time
+            var meta = document.createElement('div');
+            meta.className = 'session-meta';
+
+            if (session.branch) {
+                var branchSpan = document.createElement('span');
+                branchSpan.className = 'session-branch';
+                branchSpan.textContent = session.branch;
+                meta.appendChild(branchSpan);
+            }
+
+            var timeSpan = document.createElement('span');
+            timeSpan.className = 'session-time';
+            timeSpan.textContent = formatRelativeTime(session.lastModified);
+            meta.appendChild(timeSpan);
+
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            item.appendChild(indicator);
+            item.appendChild(info);
+
+            // click handler
+            item.addEventListener('click', function() {
+                selectSession(session.id);
+            });
+
+            sessionList.appendChild(item);
+        });
+    }
+
+    // select a session and switch to it
+    function selectSession(sessionId) {
+        if (sessionId === state.currentSessionId) {
+            return; // already selected
+        }
+
+        state.currentSessionId = sessionId;
+
+        // persist selection
+        localStorage.setItem('currentSessionId', sessionId);
+        window.location.hash = sessionId;
+
+        // update UI selection
+        var items = sessionList.querySelectorAll('.session-item');
+        items.forEach(function(item) {
+            if (item.dataset.sessionId === sessionId) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+
+        // find session data
+        var session = null;
+        for (var i = 0; i < state.sessions.length; i++) {
+            if (state.sessions[i].id === sessionId) {
+                session = state.sessions[i];
+                break;
+            }
+        }
+
+        // update header info
+        if (session) {
+            if (planNameEl) {
+                planNameEl.textContent = extractPlanName(session.planPath);
+            }
+            if (branchNameEl) {
+                branchNameEl.textContent = session.branch || '';
+            }
+        }
+
+        // reconnect SSE to new session
+        reconnectToSession(sessionId);
+
+        // reload plan for new session
+        fetchPlanForSession(sessionId);
+    }
+
+    // reconnect SSE stream to a specific session
+    function reconnectToSession(sessionId) {
+        // close existing connection
+        if (state.currentEventSource) {
+            state.currentEventSource.close();
+            state.currentEventSource = null;
+        }
+
+        // reset output state
+        resetOutputState();
+        state.isFirstConnect = true;
+        state.reconnectDelay = SSE_INITIAL_RECONNECT_MS;
+
+        // connect to new session
+        connect();
+    }
+
+    // fetch plan for a specific session
+    function fetchPlanForSession(sessionId) {
+        var url = '/api/plan';
+        if (sessionId) {
+            url += '?session=' + encodeURIComponent(sessionId);
+        }
+
+        fetch(url)
+            .then(function(response) {
+                if (!response.ok) {
+                    throw new Error('Plan not available');
+                }
+                return response.json();
+            })
+            .then(function(plan) {
+                state.planData = plan;
+                renderPlan(plan);
+            })
+            .catch(function(err) {
+                clearElement(planContent);
+                planContent.appendChild(createPlanMessage('Plan not available'));
+                console.log('Plan fetch:', err.message);
+            });
+    }
+
+    // start polling for session updates
+    function startSessionPolling() {
+        if (state.sessionPollInterval) {
+            clearInterval(state.sessionPollInterval);
+        }
+        state.sessionPollInterval = setInterval(fetchSessions, SESSION_POLL_INTERVAL_MS);
+    }
+
+    // stop polling for session updates
+    function stopSessionPolling() {
+        if (state.sessionPollInterval) {
+            clearInterval(state.sessionPollInterval);
+            state.sessionPollInterval = null;
+        }
+    }
+
     // clear element children using DOM methods
     function clearElement(el) {
         while (el.firstChild) {
@@ -714,6 +1007,7 @@
     searchInput.addEventListener('input', debouncedSearch);
 
     planToggle.addEventListener('click', togglePlanPanel);
+    sidebarToggle.addEventListener('click', toggleSessionSidebar);
 
     // keyboard shortcuts
     document.addEventListener('keydown', function(e) {
@@ -734,6 +1028,12 @@
         if ((e.key === 'p' || e.key === 'P') && document.activeElement !== searchInput) {
             e.preventDefault();
             togglePlanPanel();
+        }
+
+        // 'S' toggles session sidebar (unless in input)
+        if ((e.key === 's' || e.key === 'S') && document.activeElement !== searchInput) {
+            e.preventDefault();
+            toggleSessionSidebar();
         }
     });
 
@@ -758,6 +1058,18 @@
         if (state.currentEventSource) {
             state.currentEventSource.close();
             state.currentEventSource = null;
+        }
+        if (state.sessionPollInterval) {
+            clearInterval(state.sessionPollInterval);
+            state.sessionPollInterval = null;
+        }
+    });
+
+    // listen for hash changes to switch sessions
+    window.addEventListener('hashchange', function() {
+        var newId = window.location.hash.slice(1);
+        if (newId && newId !== state.currentSessionId) {
+            selectSession(newId);
         }
     });
 
@@ -985,6 +1297,14 @@
     collapseAllBtn.addEventListener('click', collapseAllSections);
 
     // start
-    fetchPlan();
+    fetchSessions();
+    startSessionPolling();
+
+    // if we have a session ID, fetch its plan; otherwise use server default
+    if (state.currentSessionId) {
+        fetchPlanForSession(state.currentSessionId);
+    } else {
+        fetchPlan();
+    }
     connect();
 })();

@@ -7,54 +7,66 @@
     <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-    <header>
-        <div class="header-top">
-            <h1>Ralphex Dashboard</h1>
-            <div class="status-area">
-                <span class="elapsed-time" id="elapsed-time"></span>
-                <span class="status-badge" id="status-badge">CONNECTING</span>
-                <button class="export-btn" id="export-btn" title="Export session as HTML">Export</button>
-            </div>
+    <aside class="session-sidebar" id="session-sidebar">
+        <div class="sidebar-header">
+            <span class="sidebar-title">Sessions</span>
+            <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar (S)">◀</button>
         </div>
-        <div class="info">
-            <span class="plan" title="Plan">{{.PlanName}}</span>
-            <span class="branch" title="Branch">{{.Branch}}</span>
+        <div class="session-list" id="session-list">
+            <div class="session-loading">Loading sessions...</div>
         </div>
-    </header>
+    </aside>
 
-    <nav class="phase-nav">
-        <button class="phase-tab active" data-phase="all">All</button>
-        <button class="phase-tab" data-phase="task">Implementation</button>
-        <button class="phase-tab" data-phase="review">Claude Review</button>
-        <button class="phase-tab" data-phase="codex">Codex Review</button>
-        <span class="nav-separator"></span>
-        <button class="collapse-btn" id="expand-all" title="Expand all sections">Expand All</button>
-        <button class="collapse-btn" id="collapse-all" title="Collapse all sections">Collapse All</button>
-    </nav>
-
-    <div class="search-bar">
-        <input type="text" id="search" placeholder="Search... (press / to focus)" autocomplete="off">
-        <span class="search-hint">Press Escape to clear, P to toggle plan</span>
-    </div>
-
-    <div class="main-container">
-        <aside class="plan-panel" id="plan-panel">
-            <div class="plan-panel-header">
-                <span class="plan-panel-title">Plan</span>
-                <button class="plan-toggle" id="plan-toggle" title="Toggle plan panel (P)">◀</button>
+    <div class="main-wrapper" id="main-wrapper">
+        <header>
+            <div class="header-top">
+                <h1>Ralphex Dashboard</h1>
+                <div class="status-area">
+                    <span class="elapsed-time" id="elapsed-time"></span>
+                    <span class="status-badge" id="status-badge">CONNECTING</span>
+                    <button class="export-btn" id="export-btn" title="Export session as HTML">Export</button>
+                </div>
             </div>
-            <div class="plan-content" id="plan-content">
-                <div class="plan-loading">Loading plan...</div>
+            <div class="info">
+                <span class="plan" id="plan-name" title="Plan">{{.PlanName}}</span>
+                <span class="branch" id="branch-name" title="Branch">{{.Branch}}</span>
             </div>
-        </aside>
+        </header>
 
-        <main class="output-panel">
-            <div id="output"></div>
-        </main>
-    </div>
+        <nav class="phase-nav">
+            <button class="phase-tab active" data-phase="all">All</button>
+            <button class="phase-tab" data-phase="task">Implementation</button>
+            <button class="phase-tab" data-phase="review">Claude Review</button>
+            <button class="phase-tab" data-phase="codex">Codex Review</button>
+            <span class="nav-separator"></span>
+            <button class="collapse-btn" id="expand-all" title="Expand all sections">Expand All</button>
+            <button class="collapse-btn" id="collapse-all" title="Collapse all sections">Collapse All</button>
+        </nav>
 
-    <div class="scroll-indicator" id="scroll-indicator">
-        <button id="scroll-to-bottom">Scroll to bottom</button>
+        <div class="search-bar">
+            <input type="text" id="search" placeholder="Search... (press / to focus)" autocomplete="off">
+            <span class="search-hint">Press Escape to clear, P to toggle plan, S to toggle sessions</span>
+        </div>
+
+        <div class="main-container">
+            <aside class="plan-panel" id="plan-panel">
+                <div class="plan-panel-header">
+                    <span class="plan-panel-title">Plan</span>
+                    <button class="plan-toggle" id="plan-toggle" title="Toggle plan panel (P)">◀</button>
+                </div>
+                <div class="plan-content" id="plan-content">
+                    <div class="plan-loading">Loading plan...</div>
+                </div>
+            </aside>
+
+            <main class="output-panel">
+                <div id="output"></div>
+            </main>
+        </div>
+
+        <div class="scroll-indicator" id="scroll-indicator">
+            <button id="scroll-to-bottom">Scroll to bottom</button>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>
