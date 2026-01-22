@@ -10,6 +10,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/umputun/ralphex/pkg/progress"
 )
 
 // SessionManager maintains a registry of all discovered sessions.
@@ -94,6 +96,12 @@ func (m *SessionManager) updateSession(session *Session) error {
 			// session completed, stop tailing
 			session.StopTailing()
 		}
+	}
+
+	// for completed sessions with empty buffer, load the file content once
+	// this handles sessions discovered after they finished
+	if newState == SessionStateCompleted && session.Buffer.Count() == 0 {
+		loadProgressFileIntoBuffer(session.Path, session.Buffer)
 	}
 
 	// parse metadata from file header
@@ -293,4 +301,105 @@ func ParseProgressHeader(path string) (SessionMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+// loadProgressFileIntoBuffer reads a progress file and populates the buffer with events.
+// used for completed sessions that were discovered after they finished.
+// errors are silently ignored since this is best-effort loading.
+func loadProgressFileIntoBuffer(path string, buffer *Buffer) {
+	f, err := os.Open(path) //nolint:gosec // path from user-controlled glob pattern, acceptable for session discovery
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	inHeader := true
+	phase := progress.PhaseTask
+
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// skip empty lines
+		if line == "" {
+			continue
+		}
+
+		// check for header separator (line of dashes without spaces)
+		if strings.HasPrefix(line, "---") && strings.Count(line, "-") > 20 && !strings.Contains(line, " ") {
+			inHeader = false
+			continue
+		}
+
+		// skip header lines
+		if inHeader {
+			continue
+		}
+
+		// check for section header (--- section name ---)
+		if matches := sectionRegex.FindStringSubmatch(line); matches != nil {
+			sectionName := matches[1]
+			phase = phaseFromSection(sectionName)
+			buffer.Add(Event{
+				Type:      EventTypeSection,
+				Phase:     phase,
+				Section:   sectionName,
+				Text:      sectionName,
+				Timestamp: time.Now(),
+			})
+			continue
+		}
+
+		// check for timestamped line
+		if matches := timestampRegex.FindStringSubmatch(line); matches != nil {
+			text := matches[2]
+
+			// parse timestamp
+			ts, err := time.Parse("06-01-02 15:04:05", matches[1])
+			if err != nil {
+				ts = time.Now()
+			}
+
+			eventType := detectEventType(text)
+			event := Event{
+				Type:      eventType,
+				Phase:     phase,
+				Text:      text,
+				Timestamp: ts,
+			}
+
+			if sig := extractSignalFromText(text); sig != "" {
+				event.Signal = sig
+				event.Type = EventTypeSignal
+			}
+
+			buffer.Add(event)
+			continue
+		}
+
+		// plain line (no timestamp)
+		buffer.Add(Event{
+			Type:      EventTypeOutput,
+			Phase:     phase,
+			Text:      line,
+			Timestamp: time.Now(),
+		})
+	}
+}
+
+// phaseFromSection determines the phase from a section name.
+func phaseFromSection(name string) progress.Phase {
+	nameLower := strings.ToLower(name)
+	switch {
+	case strings.Contains(nameLower, "task"):
+		return progress.PhaseTask
+	case strings.Contains(nameLower, "review"):
+		return progress.PhaseReview
+	case strings.Contains(nameLower, "codex"):
+		return progress.PhaseCodex
+	case strings.Contains(nameLower, "claude-eval") || strings.Contains(nameLower, "claude eval"):
+		return progress.PhaseClaudeEval
+	default:
+		return progress.PhaseTask
+	}
 }
