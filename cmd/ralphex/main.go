@@ -164,7 +164,7 @@ func run(ctx context.Context, o opts) error {
 	// wrap logger with broadcast logger if --serve is enabled
 	var runnerLog processor.Logger = baseLog
 	if o.Serve {
-		broadcastLog, err := startWebDashboard(ctx, baseLog, o.Port, planFile, branch, colors)
+		broadcastLog, err := startWebDashboard(ctx, baseLog, o.Port, planFile, branch, o.Watch, cfg.WatchDirs, colors)
 		if err != nil {
 			return err
 		}
@@ -448,7 +448,8 @@ func printStartupInfo(info startupInfo, colors *progress.Colors) {
 
 // startWebDashboard creates the web server and broadcast logger, starting the server in background.
 // returns the broadcast logger to use for execution, or error if server fails to start.
-func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, planFile, branch string, colors *progress.Colors) (processor.Logger, error) {
+// when watchDirs is non-empty, creates multi-session mode with file watching.
+func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, planFile, branch string, watchDirs, configWatchDirs []string, colors *progress.Colors) (processor.Logger, error) {
 	hub := web.NewHub()
 	buffer := web.NewBuffer(10000) // 10k event buffer
 
@@ -460,15 +461,44 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 		planName = filepath.Base(planFile)
 	}
 
-	// create and start web server in background
-	srv, err := web.NewServer(web.ServerConfig{
+	cfg := web.ServerConfig{
 		Port:     port,
 		PlanName: planName,
 		Branch:   branch,
 		PlanFile: planFile,
-	}, hub, buffer)
-	if err != nil {
-		return nil, fmt.Errorf("create web server: %w", err)
+	}
+
+	// determine if we should use multi-session mode
+	// multi-session mode is enabled when --watch flag is provided
+	useMultiSession := len(watchDirs) > 0
+
+	var srv *web.Server
+	var watcher *web.Watcher
+
+	if useMultiSession {
+		// multi-session mode: use SessionManager and Watcher
+		sm := web.NewSessionManager()
+
+		// resolve watch directories (CLI > config > cwd)
+		dirs := web.ResolveWatchDirs(watchDirs, configWatchDirs)
+
+		var err error
+		watcher, err = web.NewWatcher(dirs, sm)
+		if err != nil {
+			return nil, fmt.Errorf("create watcher: %w", err)
+		}
+
+		srv, err = web.NewServerWithSessions(cfg, sm)
+		if err != nil {
+			return nil, fmt.Errorf("create web server: %w", err)
+		}
+	} else {
+		// single-session mode: direct hub/buffer for current execution
+		var err error
+		srv, err = web.NewServer(cfg, hub, buffer)
+		if err != nil {
+			return nil, fmt.Errorf("create web server: %w", err)
+		}
 	}
 
 	// use channel to detect startup success/failure
@@ -479,6 +509,16 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 		}
 		close(srvErrCh)
 	}()
+
+	// start watcher in background if multi-session mode
+	if watcher != nil {
+		go func() {
+			if watchErr := watcher.Start(ctx); watchErr != nil {
+				// log error but don't fail - server can still work
+				fmt.Fprintf(os.Stderr, "warning: watcher error: %v\n", watchErr)
+			}
+		}()
+	}
 
 	// give the server a moment to start or fail
 	select {

@@ -171,6 +171,7 @@ ralphex --serve --port 3000 docs/plans/feature.md
 | `-c, --codex-only` | Skip tasks and first review, run only codex loop | false |
 | `-s, --serve` | Start web dashboard for real-time streaming | false |
 | `-p, --port` | Web dashboard port (used with `--serve`) | 8080 |
+| `-w, --watch` | Directories to watch for progress files (repeatable) | - |
 | `-d, --debug` | Enable debug logging | false |
 | `--no-color` | Disable color output | false |
 
@@ -362,6 +363,23 @@ ralphex --serve docs/plans/feature.md
 - **Late-join support** - new clients receive full history
 
 The dashboard uses a dark theme with phase-specific colors matching terminal output. All file and stdout logging continues unchanged when using `--serve`.
+
+### Multi-Session Mode
+
+The `--watch` flag enables monitoring multiple ralphex sessions simultaneously:
+
+```bash
+# watch specific directories for progress files
+ralphex --serve --watch ~/projects/frontend --watch ~/projects/backend
+
+# configure watch directories in config file
+# watch_dirs = /home/user/projects, /var/log/ralphex
+```
+
+Multi-session features:
+- **Session sidebar** - lists all discovered sessions, click to switch (keyboard: `S` to toggle)
+- **Active detection** - pulsing indicator for running sessions via file locking
+- **Auto-discovery** - new sessions appear automatically as they start
 
 ## For LLMs
 
