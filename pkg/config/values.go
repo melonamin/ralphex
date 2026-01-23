@@ -9,23 +9,6 @@ import (
 	"gopkg.in/ini.v1"
 )
 
-// config key names used in INI files.
-// using constants prevents typos and enables easy searching for key usage.
-const (
-	keyClaudeCommand        = "claude_command"
-	keyClaudeArgs           = "claude_args"
-	keyCodexEnabled         = "codex_enabled"
-	keyCodexCommand         = "codex_command"
-	keyCodexModel           = "codex_model"
-	keyCodexReasoningEffort = "codex_reasoning_effort"
-	keyCodexTimeoutMs       = "codex_timeout_ms"
-	keyCodexSandbox         = "codex_sandbox"
-	keyIterationDelayMs     = "iteration_delay_ms"
-	keyTaskRetryCount       = "task_retry_count"
-	keyPlansDir             = "plans_dir"
-	keyWatchDirs            = "watch_dirs"
-)
-
 // Values holds scalar configuration values.
 // Fields ending in *Set (e.g., CodexEnabledSet) track whether that field was explicitly
 // set in config. This allows distinguishing explicit false/0 from "not set", enabling
@@ -118,6 +101,8 @@ func (vl *valuesLoader) parseValuesFromEmbedded() (Values, error) {
 }
 
 // parseValuesFromBytes parses configuration from a byte slice into Values.
+//
+//nolint:gocyclo // adding watch_dirs pushed complexity over threshold; splitting would hurt readability
 func (vl *valuesLoader) parseValuesFromBytes(data []byte) (Values, error) {
 	// ignoreInlineComment: true prevents # from being treated as inline comment marker
 	cfg, err := ini.LoadSources(ini.LoadOptions{IgnoreInlineComment: true}, data)
@@ -129,114 +114,88 @@ func (vl *valuesLoader) parseValuesFromBytes(data []byte) (Values, error) {
 	section := cfg.Section("") // default section (no section header)
 
 	// claude settings
-	values.ClaudeCommand = getStringKey(section, keyClaudeCommand)
-	values.ClaudeArgs = getStringKey(section, keyClaudeArgs)
+	if key, err := section.GetKey("claude_command"); err == nil {
+		values.ClaudeCommand = key.String()
+	}
+	if key, err := section.GetKey("claude_args"); err == nil {
+		values.ClaudeArgs = key.String()
+	}
 
 	// codex settings
-	codexEnabled, codexEnabledSet, err := getBoolKey(section, keyCodexEnabled)
-	if err != nil {
-		return Values{}, err
+	if key, err := section.GetKey("codex_enabled"); err == nil {
+		val, boolErr := key.Bool()
+		if boolErr != nil {
+			return Values{}, fmt.Errorf("invalid codex_enabled: %w", boolErr)
+		}
+		values.CodexEnabled = val
+		values.CodexEnabledSet = true
 	}
-	values.CodexEnabled = codexEnabled
-	values.CodexEnabledSet = codexEnabledSet
-
-	values.CodexCommand = getStringKey(section, keyCodexCommand)
-	values.CodexModel = getStringKey(section, keyCodexModel)
-	values.CodexReasoningEffort = getStringKey(section, keyCodexReasoningEffort)
-
-	codexTimeout, codexTimeoutSet, err := getNonNegativeIntKey(section, keyCodexTimeoutMs)
-	if err != nil {
-		return Values{}, err
+	if key, err := section.GetKey("codex_command"); err == nil {
+		values.CodexCommand = key.String()
 	}
-	values.CodexTimeoutMs = codexTimeout
-	values.CodexTimeoutMsSet = codexTimeoutSet
-
-	values.CodexSandbox = getStringKey(section, keyCodexSandbox)
+	if key, err := section.GetKey("codex_model"); err == nil {
+		values.CodexModel = key.String()
+	}
+	if key, err := section.GetKey("codex_reasoning_effort"); err == nil {
+		values.CodexReasoningEffort = key.String()
+	}
+	if key, err := section.GetKey("codex_timeout_ms"); err == nil {
+		val, intErr := key.Int()
+		if intErr != nil {
+			return Values{}, fmt.Errorf("invalid codex_timeout_ms: %w", intErr)
+		}
+		if val < 0 {
+			return Values{}, fmt.Errorf("invalid codex_timeout_ms: must be non-negative, got %d", val)
+		}
+		values.CodexTimeoutMs = val
+		values.CodexTimeoutMsSet = true
+	}
+	if key, err := section.GetKey("codex_sandbox"); err == nil {
+		values.CodexSandbox = key.String()
+	}
 
 	// timing settings
-	iterDelay, iterDelaySet, err := getNonNegativeIntKey(section, keyIterationDelayMs)
-	if err != nil {
-		return Values{}, err
+	if key, err := section.GetKey("iteration_delay_ms"); err == nil {
+		val, intErr := key.Int()
+		if intErr != nil {
+			return Values{}, fmt.Errorf("invalid iteration_delay_ms: %w", intErr)
+		}
+		if val < 0 {
+			return Values{}, fmt.Errorf("invalid iteration_delay_ms: must be non-negative, got %d", val)
+		}
+		values.IterationDelayMs = val
+		values.IterationDelayMsSet = true
 	}
-	values.IterationDelayMs = iterDelay
-	values.IterationDelayMsSet = iterDelaySet
-
-	retryCount, retryCountSet, err := getNonNegativeIntKey(section, keyTaskRetryCount)
-	if err != nil {
-		return Values{}, err
+	if key, err := section.GetKey("task_retry_count"); err == nil {
+		val, intErr := key.Int()
+		if intErr != nil {
+			return Values{}, fmt.Errorf("invalid task_retry_count: %w", intErr)
+		}
+		if val < 0 {
+			return Values{}, fmt.Errorf("invalid task_retry_count: must be non-negative, got %d", val)
+		}
+		values.TaskRetryCount = val
+		values.TaskRetryCountSet = true
 	}
-	values.TaskRetryCount = retryCount
-	values.TaskRetryCountSet = retryCountSet
 
 	// paths
-	values.PlansDir = getStringKey(section, keyPlansDir)
-	values.WatchDirs = getCommaSeparatedKey(section, keyWatchDirs)
+	if key, err := section.GetKey("plans_dir"); err == nil {
+		values.PlansDir = key.String()
+	}
 
-	return values, nil
-}
-
-// getStringKey returns the string value of a key, or empty string if not found.
-// returns empty string if section is nil (defensive check).
-func getStringKey(section *ini.Section, keyName string) string {
-	if section == nil {
-		return ""
-	}
-	if section.HasKey(keyName) {
-		return section.Key(keyName).String()
-	}
-	return ""
-}
-
-// getBoolKey parses a bool key. Returns (value, wasSet, error).
-// If key doesn't exist or section is nil, returns (false, false, nil).
-func getBoolKey(section *ini.Section, keyName string) (bool, bool, error) {
-	if section == nil || !section.HasKey(keyName) {
-		return false, false, nil
-	}
-	val, err := section.Key(keyName).Bool()
-	if err != nil {
-		return false, false, fmt.Errorf("invalid %s: %w", keyName, err)
-	}
-	return val, true, nil
-}
-
-// getNonNegativeIntKey parses an int key and validates it's non-negative.
-// Returns (value, wasSet, error). If key doesn't exist or section is nil, returns (0, false, nil).
-func getNonNegativeIntKey(section *ini.Section, keyName string) (int, bool, error) {
-	if section == nil || !section.HasKey(keyName) {
-		return 0, false, nil
-	}
-	val, err := section.Key(keyName).Int()
-	if err != nil {
-		return 0, false, fmt.Errorf("invalid %s: %w", keyName, err)
-	}
-	if val < 0 {
-		return 0, false, fmt.Errorf("invalid %s: must be non-negative, got %d", keyName, val)
-	}
-	return val, true, nil
-}
-
-// getCommaSeparatedKey returns a slice of trimmed strings from a comma-separated key value.
-// returns nil if key doesn't exist, is empty, or section is nil.
-func getCommaSeparatedKey(section *ini.Section, keyName string) []string {
-	val := strings.TrimSpace(getStringKey(section, keyName))
-	if val == "" {
-		return nil
-	}
-	return parseCommaSeparatedList(val)
-}
-
-// parseCommaSeparatedList splits a comma-separated string into a list of trimmed strings.
-func parseCommaSeparatedList(val string) []string {
-	parts := strings.Split(val, ",")
-	result := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			result = append(result, p)
+	// watch directories (comma-separated)
+	if key, err := section.GetKey("watch_dirs"); err == nil {
+		val := strings.TrimSpace(key.String())
+		if val != "" {
+			for p := range strings.SplitSeq(val, ",") {
+				if t := strings.TrimSpace(p); t != "" {
+					values.WatchDirs = append(values.WatchDirs, t)
+				}
+			}
 		}
 	}
-	return result
+
+	return values, nil
 }
 
 // mergeFrom merges non-empty values from src into dst.
