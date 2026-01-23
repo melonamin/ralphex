@@ -13,7 +13,6 @@ make build      # build binary to .bin/ralphex
 make test       # run tests with coverage
 make lint       # run golangci-lint
 make fmt        # format code
-make install    # install to ~/.local/bin
 ```
 
 ## Project Structure
@@ -143,7 +142,7 @@ echo "// comment" >> main.go
 git add -A && git commit -m "add comment"
 
 # run review-only (no plan needed)
-go run ~/dev.umputun/ralphex/cmd/ralphex --review
+go run <ralphex-project-root>/cmd/ralphex --review
 ```
 
 ### Test Codex-Only Mode
@@ -152,7 +151,7 @@ go run ~/dev.umputun/ralphex/cmd/ralphex --review
 cd /tmp/ralphex-test
 
 # run codex-only review
-go run ~/dev.umputun/ralphex/cmd/ralphex --codex-only
+go run <ralphex-project-root>/cmd/ralphex --codex-only
 ```
 
 ### Monitor Progress
@@ -175,6 +174,40 @@ tail -50 progress-*.txt
 4. Monitor `tail -f progress-*.txt` to verify output streaming works
 
 Unit tests don't verify actual codex/claude integration or output formatting. The toy project test is the only way to verify streaming output works correctly.
+
+## Before Submitting a PR
+
+If you're an AI agent preparing a contribution, complete this checklist:
+
+**Code Quality:**
+- [ ] Run `make test` - all tests must pass
+- [ ] Run `make lint` - fix all linter issues
+- [ ] Run `make fmt` - code is properly formatted
+- [ ] New code has tests with 80%+ coverage
+
+**Project Patterns:**
+- [ ] Studied existing code to understand project conventions
+- [ ] One `_test.go` file per source file (not `foo_something_test.go`)
+- [ ] Tests use table-driven pattern with testify
+- [ ] Test helper functions call `t.Helper()`
+- [ ] Mocks generated with moq, stored in `mocks/` subdirectory
+- [ ] Interfaces defined at consumer side, not provider
+- [ ] Context as first parameter for blocking/cancellable methods
+- [ ] Private struct fields for internal state, accessor methods if needed
+- [ ] Regex patterns compiled once at package level
+- [ ] Deferred cleanup for resources (files, contexts, connections)
+- [ ] No new dependencies unless directly needed - avoid accidental additions
+
+**PR Scope:**
+- [ ] Changes are focused on the requested feature/fix only
+- [ ] No "general improvements" to unrelated code
+- [ ] PR is reasonably sized for human review
+- [ ] Large changes split into logical, focused PRs
+
+**Self-Review:**
+- [ ] Can explain every line of code if asked
+- [ ] Checked for security issues (injection, secrets exposure, etc.)
+- [ ] Commit messages describe "why", not just "what"
 
 ## MkDocs Site
 
