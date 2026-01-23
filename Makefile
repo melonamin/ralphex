@@ -68,6 +68,7 @@ e2e-codex: build
 prep_site:
 	cp -fv README.md site/docs/index.md
 	cp -rv assets site/docs/
+	cp -fv llms.txt site/docs/
 	grep -v -E 'badge|coveralls|goreportcard' site/docs/index.md > site/docs/index.md.tmp && mv site/docs/index.md.tmp site/docs/index.md
 	cd site && pip install -r requirements.txt && mkdocs build
 

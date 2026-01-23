@@ -43,4 +43,6 @@ progress*.txt
 site/site/
 site/docs/index.md
 site/docs/assets/
+site/docs/llms.txt
+site/.venv/
 .playwright-mcp/

@@ -155,3 +155,9 @@ tail -50 progress-*.txt
 4. Monitor `tail -f progress-*.txt` to verify output streaming works
 
 Unit tests don't verify actual codex/claude integration or output formatting. The toy project test is the only way to verify streaming output works correctly.
+
+## MkDocs Site
+
+- Site source: `site/` directory with `mkdocs.yml`
+- Template overrides: `site/overrides/` with `custom_dir: overrides` in mkdocs.yml
+- **CI constraint**: Cloudflare Pages uses mkdocs-material 9.2.x, must use `materialx.emoji` syntax (not `material.extensions.emoji` which requires 9.4+)

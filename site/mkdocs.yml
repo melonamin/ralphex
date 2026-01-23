@@ -10,6 +10,7 @@ copyright: Some rights reserved &copy; 2026 Umputun
 
 theme:
   name: material
+  custom_dir: overrides
   favicon: favicon.png
   language: en
   palette:
