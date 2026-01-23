@@ -9,6 +9,23 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+// config key names used in INI files.
+// using constants prevents typos and enables easy searching for key usage.
+const (
+	keyClaudeCommand        = "claude_command"
+	keyClaudeArgs           = "claude_args"
+	keyCodexEnabled         = "codex_enabled"
+	keyCodexCommand         = "codex_command"
+	keyCodexModel           = "codex_model"
+	keyCodexReasoningEffort = "codex_reasoning_effort"
+	keyCodexTimeoutMs       = "codex_timeout_ms"
+	keyCodexSandbox         = "codex_sandbox"
+	keyIterationDelayMs     = "iteration_delay_ms"
+	keyTaskRetryCount       = "task_retry_count"
+	keyPlansDir             = "plans_dir"
+	keyWatchDirs            = "watch_dirs"
+)
+
 // Values holds scalar configuration values.
 // Fields ending in *Set (e.g., CodexEnabledSet) track whether that field was explicitly
 // set in config. This allows distinguishing explicit false/0 from "not set", enabling
@@ -112,39 +129,39 @@ func (vl *valuesLoader) parseValuesFromBytes(data []byte) (Values, error) {
 	section := cfg.Section("") // default section (no section header)
 
 	// claude settings
-	values.ClaudeCommand = getStringKey(section, "claude_command")
-	values.ClaudeArgs = getStringKey(section, "claude_args")
+	values.ClaudeCommand = getStringKey(section, keyClaudeCommand)
+	values.ClaudeArgs = getStringKey(section, keyClaudeArgs)
 
 	// codex settings
-	codexEnabled, codexEnabledSet, err := getBoolKey(section, "codex_enabled")
+	codexEnabled, codexEnabledSet, err := getBoolKey(section, keyCodexEnabled)
 	if err != nil {
 		return Values{}, err
 	}
 	values.CodexEnabled = codexEnabled
 	values.CodexEnabledSet = codexEnabledSet
 
-	values.CodexCommand = getStringKey(section, "codex_command")
-	values.CodexModel = getStringKey(section, "codex_model")
-	values.CodexReasoningEffort = getStringKey(section, "codex_reasoning_effort")
+	values.CodexCommand = getStringKey(section, keyCodexCommand)
+	values.CodexModel = getStringKey(section, keyCodexModel)
+	values.CodexReasoningEffort = getStringKey(section, keyCodexReasoningEffort)
 
-	codexTimeout, codexTimeoutSet, err := getNonNegativeIntKey(section, "codex_timeout_ms")
+	codexTimeout, codexTimeoutSet, err := getNonNegativeIntKey(section, keyCodexTimeoutMs)
 	if err != nil {
 		return Values{}, err
 	}
 	values.CodexTimeoutMs = codexTimeout
 	values.CodexTimeoutMsSet = codexTimeoutSet
 
-	values.CodexSandbox = getStringKey(section, "codex_sandbox")
+	values.CodexSandbox = getStringKey(section, keyCodexSandbox)
 
 	// timing settings
-	iterDelay, iterDelaySet, err := getNonNegativeIntKey(section, "iteration_delay_ms")
+	iterDelay, iterDelaySet, err := getNonNegativeIntKey(section, keyIterationDelayMs)
 	if err != nil {
 		return Values{}, err
 	}
 	values.IterationDelayMs = iterDelay
 	values.IterationDelayMsSet = iterDelaySet
 
-	retryCount, retryCountSet, err := getNonNegativeIntKey(section, "task_retry_count")
+	retryCount, retryCountSet, err := getNonNegativeIntKey(section, keyTaskRetryCount)
 	if err != nil {
 		return Values{}, err
 	}
@@ -152,16 +169,18 @@ func (vl *valuesLoader) parseValuesFromBytes(data []byte) (Values, error) {
 	values.TaskRetryCountSet = retryCountSet
 
 	// paths
-	values.PlansDir = getStringKey(section, "plans_dir")
-	if val := strings.TrimSpace(getStringKey(section, "watch_dirs")); val != "" {
-		values.WatchDirs = parseCommaSeparatedList(val)
-	}
+	values.PlansDir = getStringKey(section, keyPlansDir)
+	values.WatchDirs = getCommaSeparatedKey(section, keyWatchDirs)
 
 	return values, nil
 }
 
 // getStringKey returns the string value of a key, or empty string if not found.
+// returns empty string if section is nil (defensive check).
 func getStringKey(section *ini.Section, keyName string) string {
+	if section == nil {
+		return ""
+	}
 	if section.HasKey(keyName) {
 		return section.Key(keyName).String()
 	}
@@ -169,9 +188,9 @@ func getStringKey(section *ini.Section, keyName string) string {
 }
 
 // getBoolKey parses a bool key. Returns (value, wasSet, error).
-// If key doesn't exist, returns (false, false, nil).
+// If key doesn't exist or section is nil, returns (false, false, nil).
 func getBoolKey(section *ini.Section, keyName string) (bool, bool, error) {
-	if !section.HasKey(keyName) {
+	if section == nil || !section.HasKey(keyName) {
 		return false, false, nil
 	}
 	val, err := section.Key(keyName).Bool()
@@ -182,9 +201,9 @@ func getBoolKey(section *ini.Section, keyName string) (bool, bool, error) {
 }
 
 // getNonNegativeIntKey parses an int key and validates it's non-negative.
-// Returns (value, wasSet, error). If key doesn't exist, returns (0, false, nil).
+// Returns (value, wasSet, error). If key doesn't exist or section is nil, returns (0, false, nil).
 func getNonNegativeIntKey(section *ini.Section, keyName string) (int, bool, error) {
-	if !section.HasKey(keyName) {
+	if section == nil || !section.HasKey(keyName) {
 		return 0, false, nil
 	}
 	val, err := section.Key(keyName).Int()
@@ -195,6 +214,16 @@ func getNonNegativeIntKey(section *ini.Section, keyName string) (int, bool, erro
 		return 0, false, fmt.Errorf("invalid %s: must be non-negative, got %d", keyName, val)
 	}
 	return val, true, nil
+}
+
+// getCommaSeparatedKey returns a slice of trimmed strings from a comma-separated key value.
+// returns nil if key doesn't exist, is empty, or section is nil.
+func getCommaSeparatedKey(section *ini.Section, keyName string) []string {
+	val := strings.TrimSpace(getStringKey(section, keyName))
+	if val == "" {
+		return nil
+	}
+	return parseCommaSeparatedList(val)
 }
 
 // parseCommaSeparatedList splits a comma-separated string into a list of trimmed strings.

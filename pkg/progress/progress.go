@@ -167,6 +167,7 @@ func NewLogger(cfg Config, colors *Colors) (*Logger, error) {
 		f.Close()
 		return nil, fmt.Errorf("acquire file lock: %w", err)
 	}
+	registerActiveLock(f.Name())
 
 	l := &Logger{
 		file:      f,
@@ -446,6 +447,7 @@ func (l *Logger) Close() error {
 
 	// release file lock before closing
 	_ = syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN)
+	unregisterActiveLock(l.file.Name())
 
 	if err := l.file.Close(); err != nil {
 		return fmt.Errorf("close progress file: %w", err)

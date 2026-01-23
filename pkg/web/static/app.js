@@ -1140,7 +1140,10 @@
         }
     });
 
-    // get export CSS styles (extracted for readability)
+    // get export CSS styles for standalone HTML export.
+    // MAINTENANCE: this minified CSS must be kept in sync with styles.css.
+    // when updating styles.css, regenerate this by minifying the CSS and updating here.
+    // the export feature creates offline-viewable HTML files that don't require serving.
     function getExportCss() {
         return ':root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--border-color:#30363d;--phase-task:#3fb950;--phase-review:#58a6ff;--phase-codex:#d2a8ff;--color-error:#f85149;--color-warn:#d29922;--color-section:#ffa657;--color-timestamp:#6e7681}\n' +
             '*{box-sizing:border-box;margin:0;padding:0}\n' +
@@ -1217,7 +1220,10 @@
             '@media(max-width:768px){.main-container{grid-template-columns:1fr}.plan-panel{display:none}}\n';
     }
 
-    // get export JavaScript (extracted for readability)
+    // get export JavaScript for standalone HTML export.
+    // MAINTENANCE: this minified JS provides basic filtering/search in exported HTML.
+    // it's a simplified version of the main app logic - update if core filtering changes.
+    // the export feature creates offline-viewable HTML files that don't require serving.
     function getExportJs() {
         return '(function(){var output=document.getElementById("output");var searchInput=document.getElementById("search");var phaseTabs=document.querySelectorAll(".phase-tab");var mainContainer=document.querySelector(".main-container");var planToggle=document.getElementById("plan-toggle");var expandAllBtn=document.getElementById("expand-all");var collapseAllBtn=document.getElementById("collapse-all");var currentPhase="all";var searchTerm="";function escapeRegex(s){return s.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}function setHighlight(el,text,term){el.textContent="";if(!term){el.textContent=text;return}try{var re=new RegExp("("+escapeRegex(term)+")","gi");var parts=text.split(re);parts.forEach(function(p){if(p.toLowerCase()===term.toLowerCase()){var h=document.createElement("span");h.className="highlight";h.textContent=p;el.appendChild(h)}else if(p){el.appendChild(document.createTextNode(p))}})}catch(e){el.textContent=text}}function applyFilters(){var sections=output.querySelectorAll(".section-header");sections.forEach(function(sec){var ph=sec.dataset.phase;var phMatch=currentPhase==="all"||ph===currentPhase;var hasSearch=!searchTerm;if(searchTerm){sec.querySelectorAll(".output-line").forEach(function(ln){var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;if(t.toLowerCase().includes(searchTerm.toLowerCase()))hasSearch=true})}if(phMatch&&hasSearch){sec.classList.remove("hidden")}else{sec.classList.add("hidden")}});output.querySelectorAll(".output-line").forEach(function(ln){var ph=ln.dataset.phase;var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;var phMatch=currentPhase==="all"||ph===currentPhase;var sMatch=!searchTerm||t.toLowerCase().includes(searchTerm.toLowerCase());if(phMatch&&sMatch){ln.classList.remove("hidden")}else{ln.classList.add("hidden")}setHighlight(c,t,searchTerm)})}phaseTabs.forEach(function(tab){tab.addEventListener("click",function(){currentPhase=tab.dataset.phase;phaseTabs.forEach(function(t){t.classList.toggle("active",t.dataset.phase===currentPhase)});applyFilters()})});searchInput.addEventListener("input",function(){searchTerm=searchInput.value.trim();applyFilters()});planToggle.addEventListener("click",function(){mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"▶":"◀"});expandAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=true})});collapseAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=false})});document.addEventListener("keydown",function(e){if(e.key==="/"&&document.activeElement!==searchInput){e.preventDefault();searchInput.focus()}if(e.key==="Escape"){searchInput.value="";searchTerm="";searchInput.blur();applyFilters()}if((e.key==="p"||e.key==="P")&&document.activeElement!==searchInput){e.preventDefault();mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"▶":"◀"}})})();';
     }
