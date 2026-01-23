@@ -431,6 +431,59 @@ Started: 2026-01-22 10:00:00
 	assert.GreaterOrEqual(t, len(events), 2, "expected at least 2 events in buffer for completed session")
 }
 
+func TestSessionManager_EvictOldCompleted(t *testing.T) {
+	t.Run("evicts oldest completed sessions when limit exceeded", func(t *testing.T) {
+		dir := t.TempDir()
+		m := NewSessionManager()
+
+		// create more than MaxCompletedSessions progress files
+		numSessions := MaxCompletedSessions + 5
+		paths := make([]string, numSessions)
+
+		for i := range numSessions {
+			path := filepath.Join(dir, "progress-plan"+strconv.Itoa(i)+".txt")
+			// use different start times so we can predict which ones get evicted
+			startTime := time.Date(2026, 1, 1, 10, 0, i, 0, time.UTC)
+			content := `# Ralphex Progress Log
+Plan: plan` + strconv.Itoa(i) + `.md
+Branch: main
+Mode: full
+Started: ` + startTime.Format("2006-01-02 15:04:05") + `
+------------------------------------------------------------
+`
+			require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+			paths[i] = path
+		}
+
+		// discover all sessions
+		_, err := m.Discover(dir)
+		require.NoError(t, err)
+
+		// verify only MaxCompletedSessions remain (oldest should be evicted)
+		all := m.All()
+		assert.LessOrEqual(t, len(all), MaxCompletedSessions, "should not exceed MaxCompletedSessions")
+	})
+
+	t.Run("does not evict when under limit", func(t *testing.T) {
+		dir := t.TempDir()
+		m := NewSessionManager()
+
+		// create fewer than MaxCompletedSessions
+		numSessions := 5
+		for i := range numSessions {
+			path := filepath.Join(dir, "progress-small"+strconv.Itoa(i)+".txt")
+			createProgressFile(t, path, "plan"+strconv.Itoa(i)+".md", "main", "full")
+		}
+
+		_, err := m.Discover(dir)
+		require.NoError(t, err)
+
+		// all sessions should remain
+		all := m.All()
+		assert.Len(t, all, numSessions)
+	})
+}
+
 func TestSessionManager_RefreshStates(t *testing.T) {
 	t.Run("skips non-tailing sessions", func(t *testing.T) {
 		dir := t.TempDir()

@@ -257,3 +257,23 @@ func TestHub_Subscribe_MaxClientsExceeded(t *testing.T) {
 	assert.NotNil(t, ch)
 	assert.Equal(t, MaxClients, h.ClientCount())
 }
+
+func TestHub_DroppedEvents(t *testing.T) {
+	h := NewHub()
+
+	// initially no dropped events
+	assert.Equal(t, int64(0), h.DroppedEvents())
+
+	ch, err := h.Subscribe()
+	require.NoError(t, err)
+	defer h.Unsubscribe(ch)
+
+	// fill the channel buffer (256 events) and send more to trigger drops
+	for range 300 {
+		h.Broadcast(NewOutputEvent(processor.PhaseTask, "event"))
+	}
+
+	// some events should have been dropped (300 - 256 = 44 minimum)
+	dropped := h.DroppedEvents()
+	assert.GreaterOrEqual(t, dropped, int64(44), "expected at least 44 dropped events")
+}

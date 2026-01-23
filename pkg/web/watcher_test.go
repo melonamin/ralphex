@@ -383,3 +383,92 @@ func TestWatcher_StartTwiceIsIdempotent(t *testing.T) {
 	err = w.Start(ctx)
 	require.NoError(t, err)
 }
+
+func TestWatcher_WatchesNewlyCreatedDirectories(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager()
+
+	w, err := NewWatcher([]string{tmpDir}, sm)
+	require.NoError(t, err)
+
+	ctx := t.Context()
+
+	// start watcher in background
+	go func() {
+		_ = w.Start(ctx)
+	}()
+
+	// give watcher time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// create a new subdirectory after watcher started
+	newDir := filepath.Join(tmpDir, "newproject")
+	require.NoError(t, os.Mkdir(newDir, 0o750))
+
+	// give watcher time to add the new directory
+	time.Sleep(200 * time.Millisecond)
+
+	// create a progress file in the new directory
+	progressFile := filepath.Join(newDir, "progress-newproject.txt")
+	header := `# Ralphex Progress Log
+Plan: new-plan.md
+Branch: new-branch
+Mode: full
+Started: 2026-01-22 10:00:00
+------------------------------------------------------------
+`
+	require.NoError(t, os.WriteFile(progressFile, []byte(header), 0o600))
+
+	// give watcher time to process
+	time.Sleep(200 * time.Millisecond)
+
+	// verify session was discovered in the newly created directory
+	sessionID := sessionIDFromPath(progressFile)
+	session := sm.Get(sessionID)
+	require.NotNil(t, session, "session in newly created directory should be discovered")
+	assert.Equal(t, "new-plan.md", session.GetMetadata().PlanPath)
+}
+
+func TestWatcher_Close(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager()
+
+	w, err := NewWatcher([]string{tmpDir}, sm)
+	require.NoError(t, err)
+
+	// close without starting should work
+	err = w.Close()
+	require.NoError(t, err)
+}
+
+func TestWatcher_CloseAfterStart(t *testing.T) {
+	tmpDir := t.TempDir()
+	sm := NewSessionManager()
+
+	w, err := NewWatcher([]string{tmpDir}, sm)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// start watcher in background
+	done := make(chan error, 1)
+	go func() {
+		done <- w.Start(ctx)
+	}()
+
+	// give watcher time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// close the watcher directly (not via context)
+	err = w.Close()
+	require.NoError(t, err)
+	cancel() // cleanup
+
+	// wait for watcher to exit
+	select {
+	case <-done:
+		// watcher exited
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not stop after Close")
+	}
+}
