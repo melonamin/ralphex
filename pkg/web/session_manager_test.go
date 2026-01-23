@@ -5,12 +5,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/umputun/ralphex/pkg/config"
+	"github.com/umputun/ralphex/pkg/progress"
 )
 
 func TestNewSessionManager(t *testing.T) {
@@ -212,26 +214,31 @@ func TestIsActive(t *testing.T) {
 		assert.False(t, active)
 	})
 
-	t.Run("returns true for locked file", func(t *testing.T) {
+	t.Run("returns true for active progress logger", func(t *testing.T) {
 		dir := t.TempDir()
-		path := filepath.Join(dir, "progress-test.txt")
-		createProgressFile(t, path, "plan.md", "main", "full")
+		planPath := filepath.Join(dir, "plan.md")
+		require.NoError(t, os.WriteFile(planPath, []byte("# plan"), 0o600))
 
-		// acquire lock
-		f, err := os.Open(path) //nolint:gosec // test file path
+		oldWd, err := os.Getwd()
 		require.NoError(t, err)
-		defer f.Close()
+		require.NoError(t, os.Chdir(dir))
+		t.Cleanup(func() {
+			_ = os.Chdir(oldWd)
+		})
 
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		logger, err := progress.NewLogger(progress.Config{
+			PlanFile: planPath,
+			Mode:     "full",
+			Branch:   "main",
+		}, testColors())
 		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = logger.Close()
+		})
 
-		// check from another file descriptor
-		active, err := IsActive(path)
+		active, err := IsActive(logger.Path())
 		require.NoError(t, err)
 		assert.True(t, active)
-
-		// release lock
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 	})
 
 	t.Run("returns error for missing file", func(t *testing.T) {
@@ -474,6 +481,20 @@ func TestSessionManager_RefreshStates(t *testing.T) {
 		time.Sleep(50 * time.Millisecond) // give goroutine time to stop
 		assert.Equal(t, SessionStateCompleted, session.GetState())
 		assert.False(t, session.IsTailing())
+	})
+}
+
+func testColors() *progress.Colors {
+	return progress.NewColors(config.ColorConfig{
+		Task:       "0,255,0",
+		Review:     "0,255,255",
+		Codex:      "255,0,255",
+		ClaudeEval: "100,200,255",
+		Warn:       "255,255,0",
+		Error:      "255,0,0",
+		Signal:     "255,100,100",
+		Timestamp:  "138,138,138",
+		Info:       "180,180,180",
 	})
 }
 

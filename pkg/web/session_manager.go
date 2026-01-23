@@ -7,17 +7,25 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/umputun/ralphex/pkg/processor"
+	"github.com/umputun/ralphex/pkg/progress"
 )
+
+// MaxCompletedSessions is the maximum number of completed sessions to retain.
+// active sessions are never evicted. oldest completed sessions are removed
+// when this limit is exceeded to prevent unbounded memory growth.
+const MaxCompletedSessions = 100
 
 // SessionManager maintains a registry of all discovered sessions.
 // it handles discovery of progress files, state detection via flock,
 // and provides access to sessions by ID.
+// completed sessions are automatically evicted when MaxCompletedSessions is exceeded.
 type SessionManager struct {
 	mu       sync.RWMutex
 	sessions map[string]*Session // keyed by session ID
@@ -64,6 +72,7 @@ func (m *SessionManager) Discover(dir string) ([]string, error) {
 			}
 			m.mu.Lock()
 			m.sessions[id] = session
+			m.evictOldCompleted()
 			m.mu.Unlock()
 		}
 	}
@@ -219,6 +228,37 @@ func (m *SessionManager) Close() {
 	m.sessions = make(map[string]*Session)
 }
 
+// evictOldCompleted removes oldest completed sessions when count exceeds MaxCompletedSessions.
+// active sessions are never evicted. must be called with lock held.
+func (m *SessionManager) evictOldCompleted() {
+	// count completed sessions
+	var completed []*Session
+	for _, s := range m.sessions {
+		if s.GetState() == SessionStateCompleted {
+			completed = append(completed, s)
+		}
+	}
+
+	if len(completed) <= MaxCompletedSessions {
+		return
+	}
+
+	// sort by start time (oldest first)
+	sort.Slice(completed, func(i, j int) bool {
+		ti := completed[i].GetMetadata().StartTime
+		tj := completed[j].GetMetadata().StartTime
+		return ti.Before(tj)
+	})
+
+	// evict oldest sessions beyond the limit
+	toEvict := len(completed) - MaxCompletedSessions
+	for i := range toEvict {
+		session := completed[i]
+		session.Close()
+		delete(m.sessions, session.ID)
+	}
+}
+
 // StartTailingActive starts tailing for all active sessions.
 // for each active session not already tailing, starts tailing from the beginning
 // to populate the buffer with existing content.
@@ -292,10 +332,14 @@ func sessionIDFromPath(path string) string {
 	return fmt.Sprintf("%s-%016x", id, hasher.Sum64())
 }
 
-// IsActive checks if a progress file is locked by another process.
+// IsActive checks if a progress file is locked by another process or the current one.
 // returns true if the file is locked (session is running), false otherwise.
 // uses flock with LOCK_EX|LOCK_NB to test without blocking.
 func IsActive(path string) (bool, error) {
+	if progress.IsPathLockedByCurrentProcess(path) {
+		return true, nil
+	}
+
 	f, err := os.Open(path) //nolint:gosec // path from user-controlled glob pattern, acceptable for session discovery
 	if err != nil {
 		return false, fmt.Errorf("open file: %w", err)

@@ -136,6 +136,16 @@ func run(ctx context.Context, o opts) error {
 	}
 
 	mode := determineMode(o)
+	if planFile != "" {
+		if mode == processor.ModeFull {
+			if err := createBranchIfNeeded(gitOps, planFile, colors); err != nil {
+				return err
+			}
+		}
+		if err := ensureGitignore(gitOps, colors); err != nil {
+			return err
+		}
+	}
 	branch := getCurrentBranch(gitOps)
 
 	// create progress logger
@@ -532,14 +542,11 @@ func setupWatchMode(ctx context.Context, port int, dirs []string) (chan error, c
 		return nil, nil, fmt.Errorf("create web server: %w", err)
 	}
 
-	// start server in background
-	srvErrCh := make(chan error, 1)
-	go func() {
-		if srvErr := srv.Start(ctx); srvErr != nil {
-			srvErrCh <- srvErr
-		}
-		close(srvErrCh)
-	}()
+	// start server with startup check
+	srvErrCh, err := startServerAsync(ctx, srv, port)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// start watcher in background
 	watchErrCh := make(chan error, 1)
@@ -549,16 +556,6 @@ func setupWatchMode(ctx context.Context, port int, dirs []string) (chan error, c
 		}
 		close(watchErrCh)
 	}()
-
-	// give the server a moment to start or fail
-	select {
-	case srvErr := <-srvErrCh:
-		if srvErr != nil {
-			return nil, nil, fmt.Errorf("web server failed to start on port %d: %w", port, srvErr)
-		}
-	case <-time.After(100 * time.Millisecond):
-		// server started successfully
-	}
 
 	return srvErrCh, watchErrCh, nil
 }
@@ -571,6 +568,33 @@ func printWatchModeInfo(dirs []string, port int, colors *progress.Colors) {
 	}
 	colors.Info().Printf("web dashboard: http://localhost:%d\n", port)
 	colors.Info().Printf("press Ctrl+C to exit\n")
+}
+
+// serverStartupTimeout is the time to wait for server startup before assuming success.
+const serverStartupTimeout = 100 * time.Millisecond
+
+// startServerAsync starts a web server in the background and waits briefly for startup errors.
+// returns the error channel for monitoring late errors, or an error if startup fails.
+func startServerAsync(ctx context.Context, srv *web.Server, port int) (chan error, error) {
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.Start(ctx); err != nil {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	// wait briefly for startup errors
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return nil, fmt.Errorf("web server failed to start on port %d: %w", port, err)
+		}
+	case <-time.After(serverStartupTimeout):
+		// server started successfully
+	}
+
+	return errCh, nil
 }
 
 // monitorWatchMode monitors server and watcher error channels until shutdown.
@@ -659,14 +683,11 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 		}
 	}
 
-	// use channel to detect startup success/failure
-	srvErrCh := make(chan error, 1)
-	go func() {
-		if srvErr := srv.Start(ctx); srvErr != nil {
-			srvErrCh <- srvErr
-		}
-		close(srvErrCh)
-	}()
+	// start server with startup check
+	srvErrCh, err := startServerAsync(ctx, srv, port)
+	if err != nil {
+		return nil, err
+	}
 
 	// start watcher in background if multi-session mode
 	if watcher != nil {
@@ -678,15 +699,13 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 		}()
 	}
 
-	// give the server a moment to start or fail
-	select {
-	case srvErr := <-srvErrCh:
-		if srvErr != nil {
-			return nil, fmt.Errorf("web server failed to start on port %d: %w", port, srvErr)
+	// monitor for late server errors in background
+	// these are logged but don't fail the main execution since the dashboard is supplementary
+	go func() {
+		if srvErr := <-srvErrCh; srvErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: web server error during execution: %v\n", srvErr)
 		}
-	case <-time.After(100 * time.Millisecond):
-		// server started successfully (no immediate error)
-	}
+	}()
 
 	colors.Info().Printf("web dashboard: http://localhost:%d\n", port)
 	return broadcastLog, nil

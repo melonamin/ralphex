@@ -20,9 +20,15 @@ const (
 )
 
 // Config holds all configuration settings for ralphex.
-// Fields ending in *Set (e.g., CodexEnabledSet) track whether that field was explicitly
-// set in config. This allows distinguishing explicit false/0 from "not set", enabling
-// proper merge behavior where local config can override global config with zero values.
+// Fields ending in *Set track whether that field was explicitly set in config.
+// This allows distinguishing explicit false/0 from "not set", enabling proper
+// merge behavior where local config can override global config with zero values.
+//
+// *Set fields:
+//   - CodexEnabledSet: tracks if codex_enabled was explicitly set
+//   - CodexTimeoutMsSet: tracks if codex_timeout_ms was explicitly set
+//   - IterationDelayMsSet: tracks if iteration_delay_ms was explicitly set
+//   - TaskRetryCountSet: tracks if task_retry_count was explicitly set
 type Config struct {
 	ClaudeCommand string `json:"claude_command"`
 	ClaudeArgs    string `json:"claude_args"`
