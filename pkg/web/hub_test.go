@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 func TestNewHub(t *testing.T) {
@@ -69,7 +69,7 @@ func TestHub_Broadcast(t *testing.T) {
 	ch2, err := h.Subscribe()
 	require.NoError(t, err)
 
-	event := NewOutputEvent(progress.PhaseTask, "test message")
+	event := NewOutputEvent(processor.PhaseTask, "test message")
 	h.Broadcast(event)
 
 	// both clients should receive the event
@@ -96,7 +96,7 @@ func TestHub_Broadcast_DropsForFullClient(t *testing.T) {
 
 	// fill the channel buffer (256 events)
 	for range 300 {
-		h.Broadcast(NewOutputEvent(progress.PhaseTask, "event"))
+		h.Broadcast(NewOutputEvent(processor.PhaseTask, "event"))
 	}
 
 	// should not block, some events were dropped
@@ -190,7 +190,7 @@ func TestHub_Concurrency(t *testing.T) {
 	for range 10 {
 		wg.Go(func() {
 			for range 10 {
-				h.Broadcast(NewOutputEvent(progress.PhaseTask, "event"))
+				h.Broadcast(NewOutputEvent(processor.PhaseTask, "event"))
 			}
 		})
 	}
@@ -222,7 +222,7 @@ func TestHub_BroadcastToNoClients(t *testing.T) {
 
 	// should not panic
 	assert.NotPanics(t, func() {
-		h.Broadcast(NewOutputEvent(progress.PhaseTask, "nobody listening"))
+		h.Broadcast(NewOutputEvent(processor.PhaseTask, "nobody listening"))
 	})
 }
 

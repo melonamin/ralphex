@@ -102,6 +102,12 @@ func run(ctx context.Context, o opts) error {
 	// create colors from config (all colors guaranteed populated via fallback)
 	colors := progress.NewColors(cfg.Colors)
 
+	// watch-only mode: --serve with watch dirs (CLI or config) and no plan file
+	// runs web dashboard without plan execution, can run from any directory
+	if isWatchOnlyMode(o, cfg.WatchDirs) {
+		return runWatchOnly(ctx, o, cfg, colors)
+	}
+
 	// check dependencies using configured command (or default "claude")
 	if depErr := checkClaudeDep(cfg); depErr != nil {
 		return depErr
@@ -159,7 +165,14 @@ func run(ctx context.Context, o opts) error {
 	if err != nil {
 		return fmt.Errorf("create progress logger: %w", err)
 	}
-	defer baseLog.Close()
+	defer func() {
+		if baseLog == nil {
+			return
+		}
+		if err := baseLog.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close progress log: %v\n", err)
+		}
+	}()
 
 	// wrap logger with broadcast logger if --serve is enabled
 	var runnerLog processor.Logger = baseLog
@@ -190,10 +203,15 @@ func run(ctx context.Context, o opts) error {
 		}
 	}
 
-	colors.Info().Printf("\ncompleted in %s\n", baseLog.Elapsed())
+	elapsed := baseLog.Elapsed()
+	colors.Info().Printf("\ncompleted in %s\n", elapsed)
 
 	// keep web dashboard running after execution completes
 	if o.Serve {
+		if err := baseLog.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to close progress log: %v\n", err)
+		}
+		baseLog = nil
 		colors.Info().Printf("web dashboard still running at http://localhost:%d (press Ctrl+C to exit)\n", o.Port)
 		<-ctx.Done()
 	}
@@ -208,6 +226,28 @@ func checkClaudeDep(cfg *config.Config) error {
 		claudeCmd = "claude"
 	}
 	return checkDependencies(claudeCmd)
+}
+
+// isWatchOnlyMode returns true if running in watch-only mode.
+// watch-only mode runs the web dashboard without executing any plan.
+//
+// enabled when all conditions are met:
+//   - --serve flag is set
+//   - no plan file provided (neither positional arg nor --plan)
+//   - watch directories exist (via --watch flag or config file)
+//
+// use cases:
+//   - monitoring multiple concurrent ralphex executions from a central dashboard
+//   - viewing progress of ralphex sessions running in other terminals
+//
+// example: ralphex --serve --watch ~/projects --watch /tmp
+func isWatchOnlyMode(o opts, configWatchDirs []string) bool {
+	return o.Serve && o.PlanFile == "" && (len(o.Watch) > 0 || len(configWatchDirs) > 0)
+}
+
+// shouldSkipTasks returns true if task execution should be skipped (review or codex-only mode).
+func shouldSkipTasks(o opts) bool {
+	return o.Review || o.CodexOnly
 }
 
 // determineMode returns the execution mode based on CLI flags.
@@ -446,6 +486,86 @@ func printStartupInfo(info startupInfo, colors *progress.Colors) {
 	colors.Info().Printf("progress log: %s\n\n", info.ProgressPath)
 }
 
+// runWatchOnly runs the web dashboard in watch-only mode without plan execution.
+// monitors directories for progress files and serves the multi-session dashboard.
+func runWatchOnly(ctx context.Context, o opts, cfg *config.Config, colors *progress.Colors) error {
+	dirs := web.ResolveWatchDirs(o.Watch, cfg.WatchDirs)
+
+	// fail fast if no watch directories configured
+	if len(dirs) == 0 {
+		return errors.New("no watch directories configured")
+	}
+
+	sm := web.NewSessionManager()
+	watcher, err := web.NewWatcher(dirs, sm)
+	if err != nil {
+		return fmt.Errorf("create watcher: %w", err)
+	}
+
+	serverCfg := web.ServerConfig{
+		Port:     o.Port,
+		PlanName: "(watch mode)",
+		Branch:   "",
+		PlanFile: "",
+	}
+
+	srv, err := web.NewServerWithSessions(serverCfg, sm)
+	if err != nil {
+		return fmt.Errorf("create web server: %w", err)
+	}
+
+	// start server in background
+	srvErrCh := make(chan error, 1)
+	go func() {
+		if srvErr := srv.Start(ctx); srvErr != nil {
+			srvErrCh <- srvErr
+		}
+		close(srvErrCh)
+	}()
+
+	// start watcher in background
+	watchErrCh := make(chan error, 1)
+	go func() {
+		if watchErr := watcher.Start(ctx); watchErr != nil {
+			watchErrCh <- watchErr
+		}
+		close(watchErrCh)
+	}()
+
+	// give the server a moment to start or fail
+	select {
+	case srvErr := <-srvErrCh:
+		if srvErr != nil {
+			return fmt.Errorf("web server failed to start on port %d: %w", o.Port, srvErr)
+		}
+	case <-time.After(100 * time.Millisecond):
+		// server started successfully
+	}
+
+	colors.Info().Printf("watch-only mode: monitoring %d directories\n", len(dirs))
+	for _, dir := range dirs {
+		colors.Info().Printf("  %s\n", dir)
+	}
+	colors.Info().Printf("web dashboard: http://localhost:%d\n", o.Port)
+	colors.Info().Printf("press Ctrl+C to exit\n")
+
+	// monitor for errors until shutdown
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case srvErr := <-srvErrCh:
+			if srvErr != nil && ctx.Err() == nil {
+				colors.Error().Printf("web server error: %v\n", srvErr)
+			}
+		case watchErr := <-watchErrCh:
+			if watchErr != nil && ctx.Err() == nil {
+				colors.Error().Printf("file watcher error: %v\n", watchErr)
+			}
+		}
+	}
+}
+
 // startWebDashboard creates the web server and broadcast logger, starting the server in background.
 // returns the broadcast logger to use for execution, or error if server fails to start.
 // when watchDirs is non-empty, creates multi-session mode with file watching.
@@ -469,8 +589,8 @@ func startWebDashboard(ctx context.Context, baseLog processor.Logger, port int, 
 	}
 
 	// determine if we should use multi-session mode
-	// multi-session mode is enabled when --watch flag is provided
-	useMultiSession := len(watchDirs) > 0
+	// multi-session mode is enabled when watch dirs are provided via CLI or config
+	useMultiSession := len(watchDirs) > 0 || len(configWatchDirs) > 0
 
 	var srv *web.Server
 	var watcher *web.Watcher

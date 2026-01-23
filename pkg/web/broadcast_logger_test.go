@@ -7,16 +7,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/umputun/ralphex/pkg/processor"
 	"github.com/umputun/ralphex/pkg/processor/mocks"
-	"github.com/umputun/ralphex/pkg/progress"
 )
 
 func TestNewBroadcastLogger(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		SetPhaseFunc:     func(progress.Phase) {},
+		SetPhaseFunc:     func(processor.Phase) {},
 		PrintFunc:        func(string, ...any) {},
 		PrintRawFunc:     func(string, ...any) {},
-		PrintSectionFunc: func(string) {},
+		PrintSectionFunc: func(processor.Section) {},
 		PrintAlignedFunc: func(string) {},
 		PathFunc:         func() string { return "/test/path" },
 	}
@@ -26,22 +26,22 @@ func TestNewBroadcastLogger(t *testing.T) {
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
 	assert.NotNil(t, bl)
-	assert.Equal(t, progress.PhaseTask, bl.phase)
+	assert.Equal(t, processor.PhaseTask, bl.phase)
 }
 
 func TestBroadcastLogger_SetPhase(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		SetPhaseFunc: func(progress.Phase) {},
+		SetPhaseFunc: func(processor.Phase) {},
 	}
 	hub := NewHub()
 	buffer := NewBuffer(100)
 	bl := NewBroadcastLogger(mockLogger, hub, buffer)
 
-	bl.SetPhase(progress.PhaseReview)
+	bl.SetPhase(processor.PhaseReview)
 
-	assert.Equal(t, progress.PhaseReview, bl.phase)
+	assert.Equal(t, processor.PhaseReview, bl.phase)
 	require.Len(t, mockLogger.SetPhaseCalls(), 1)
-	assert.Equal(t, progress.PhaseReview, mockLogger.SetPhaseCalls()[0].Phase)
+	assert.Equal(t, processor.PhaseReview, mockLogger.SetPhaseCalls()[0].Phase)
 }
 
 func TestBroadcastLogger_Print(t *testing.T) {
@@ -68,7 +68,7 @@ func TestBroadcastLogger_Print(t *testing.T) {
 	case e := <-ch:
 		assert.Equal(t, EventTypeOutput, e.Type)
 		assert.Equal(t, "hello world", e.Text)
-		assert.Equal(t, progress.PhaseTask, e.Phase)
+		assert.Equal(t, processor.PhaseTask, e.Phase)
 	case <-time.After(time.Second):
 		t.Fatal("did not receive event")
 	}
@@ -108,7 +108,7 @@ func TestBroadcastLogger_PrintRaw(t *testing.T) {
 
 func TestBroadcastLogger_PrintSection(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		PrintSectionFunc: func(string) {},
+		PrintSectionFunc: func(processor.Section) {},
 	}
 	hub := NewHub()
 	buffer := NewBuffer(100)
@@ -117,11 +117,12 @@ func TestBroadcastLogger_PrintSection(t *testing.T) {
 	ch, err := hub.Subscribe()
 	require.NoError(t, err)
 
-	bl.PrintSection("Test Section")
+	section := processor.NewGenericSection("Test Section")
+	bl.PrintSection(section)
 
 	// verify inner logger was called
 	require.Len(t, mockLogger.PrintSectionCalls(), 1)
-	assert.Equal(t, "Test Section", mockLogger.PrintSectionCalls()[0].Name)
+	assert.Equal(t, "Test Section", mockLogger.PrintSectionCalls()[0].Section.Label)
 
 	// verify event was broadcast with section type
 	select {
@@ -206,7 +207,7 @@ func TestBroadcastLogger_Path(t *testing.T) {
 
 func TestBroadcastLogger_PhaseAffectsEvents(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		SetPhaseFunc: func(progress.Phase) {},
+		SetPhaseFunc: func(processor.Phase) {},
 		PrintFunc:    func(string, ...any) {},
 	}
 	hub := NewHub()
@@ -219,13 +220,13 @@ func TestBroadcastLogger_PhaseAffectsEvents(t *testing.T) {
 	// print with default phase (task)
 	bl.Print("task message")
 	e1 := <-ch
-	assert.Equal(t, progress.PhaseTask, e1.Phase)
+	assert.Equal(t, processor.PhaseTask, e1.Phase)
 
 	// change phase and print again
-	bl.SetPhase(progress.PhaseCodex)
+	bl.SetPhase(processor.PhaseCodex)
 	bl.Print("codex message")
 	e2 := <-ch
-	assert.Equal(t, progress.PhaseCodex, e2.Phase)
+	assert.Equal(t, processor.PhaseCodex, e2.Phase)
 }
 
 func TestBroadcastLogger_BufferAndHubBothReceive(t *testing.T) {
@@ -278,7 +279,7 @@ func TestFormatText(t *testing.T) {
 
 func TestBroadcastLogger_PrintSection_TaskBoundaryEvents(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		PrintSectionFunc: func(string) {},
+		PrintSectionFunc: func(processor.Section) {},
 	}
 	hub := NewHub()
 	buffer := NewBuffer(100)
@@ -288,7 +289,7 @@ func TestBroadcastLogger_PrintSection_TaskBoundaryEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// emit task iteration section - should emit task start + section events
-	bl.PrintSection("task iteration 1")
+	bl.PrintSection(processor.NewTaskIterationSection(1))
 
 	// should receive task_start event first
 	e1 := <-ch
@@ -302,7 +303,7 @@ func TestBroadcastLogger_PrintSection_TaskBoundaryEvents(t *testing.T) {
 	assert.Equal(t, "task iteration 1", e2.Section)
 
 	// emit another task iteration - should emit task end for previous, then task start
-	bl.PrintSection("task iteration 2")
+	bl.PrintSection(processor.NewTaskIterationSection(2))
 
 	// should receive task_end event for task 1
 	e3 := <-ch
@@ -321,8 +322,8 @@ func TestBroadcastLogger_PrintSection_TaskBoundaryEvents(t *testing.T) {
 
 func TestBroadcastLogger_PrintSection_IterationEvents(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		PrintSectionFunc: func(string) {},
-		SetPhaseFunc:     func(progress.Phase) {},
+		PrintSectionFunc: func(processor.Section) {},
+		SetPhaseFunc:     func(processor.Phase) {},
 	}
 	hub := NewHub()
 	buffer := NewBuffer(100)
@@ -332,25 +333,25 @@ func TestBroadcastLogger_PrintSection_IterationEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	// test claude review iteration pattern
-	bl.SetPhase(progress.PhaseReview)
-	bl.PrintSection("claude review 3: critical/major")
+	bl.SetPhase(processor.PhaseReview)
+	bl.PrintSection(processor.NewClaudeReviewSection(3, ": critical/major"))
 
 	e1 := <-ch
 	assert.Equal(t, EventTypeIterationStart, e1.Type)
 	assert.Equal(t, 3, e1.IterationNum)
-	assert.Equal(t, progress.PhaseReview, e1.Phase)
+	assert.Equal(t, processor.PhaseReview, e1.Phase)
 
 	e2 := <-ch
 	assert.Equal(t, EventTypeSection, e2.Type)
 
 	// test codex iteration pattern
-	bl.SetPhase(progress.PhaseCodex)
-	bl.PrintSection("codex iteration 5")
+	bl.SetPhase(processor.PhaseCodex)
+	bl.PrintSection(processor.NewCodexIterationSection(5))
 
 	e3 := <-ch
 	assert.Equal(t, EventTypeIterationStart, e3.Type)
 	assert.Equal(t, 5, e3.IterationNum)
-	assert.Equal(t, progress.PhaseCodex, e3.Phase)
+	assert.Equal(t, processor.PhaseCodex, e3.Phase)
 
 	e4 := <-ch
 	assert.Equal(t, EventTypeSection, e4.Type)
@@ -358,7 +359,7 @@ func TestBroadcastLogger_PrintSection_IterationEvents(t *testing.T) {
 
 func TestBroadcastLogger_PrintSection_NoExtraEvents(t *testing.T) {
 	mockLogger := &mocks.LoggerMock{
-		PrintSectionFunc: func(string) {},
+		PrintSectionFunc: func(processor.Section) {},
 	}
 	hub := NewHub()
 	buffer := NewBuffer(100)
@@ -367,8 +368,8 @@ func TestBroadcastLogger_PrintSection_NoExtraEvents(t *testing.T) {
 	ch, err := hub.Subscribe()
 	require.NoError(t, err)
 
-	// regular section that doesn't match any pattern
-	bl.PrintSection("review: all findings")
+	// regular section that doesn't match any iteration pattern
+	bl.PrintSection(processor.NewGenericSection("review: all findings"))
 
 	// should only receive section event
 	e1 := <-ch

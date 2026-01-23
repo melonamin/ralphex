@@ -2,24 +2,9 @@ package web
 
 import (
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/umputun/ralphex/pkg/processor"
-	"github.com/umputun/ralphex/pkg/progress"
-)
-
-// patterns for detecting task and iteration boundaries in section names.
-// uses word boundary \b instead of end-of-string $ for flexibility with potential suffixes.
-//
-// NOTE: these patterns are tightly coupled to how the processor names sections.
-// the web dashboard UI depends on these exact patterns to track task progress.
-// changing section naming in the processor may break dashboard task tracking.
-var (
-	taskIterationPattern   = regexp.MustCompile(`^task iteration (\d+)\b`)
-	reviewIterationPattern = regexp.MustCompile(`^claude review (\d+)\b`)
-	codexIterationPattern  = regexp.MustCompile(`^codex iteration (\d+)\b`)
 )
 
 // BroadcastLogger wraps a processor.Logger and broadcasts events to SSE clients.
@@ -33,7 +18,7 @@ type BroadcastLogger struct {
 	inner       processor.Logger
 	hub         *Hub
 	buffer      *Buffer
-	phase       progress.Phase
+	phase       processor.Phase
 	currentTask int // tracks current task number for boundary events
 }
 
@@ -43,15 +28,15 @@ func NewBroadcastLogger(inner processor.Logger, hub *Hub, buffer *Buffer) *Broad
 		inner:  inner,
 		hub:    hub,
 		buffer: buffer,
-		phase:  progress.PhaseTask,
+		phase:  processor.PhaseTask,
 	}
 }
 
 // SetPhase sets the current execution phase for color coding.
 // emits task_end event if transitioning away from task phase with an active task.
-func (b *BroadcastLogger) SetPhase(phase progress.Phase) {
+func (b *BroadcastLogger) SetPhase(phase processor.Phase) {
 	// if leaving task phase with an active task, emit task_end
-	if b.phase == progress.PhaseTask && phase != progress.PhaseTask && b.currentTask > 0 {
+	if b.phase == processor.PhaseTask && phase != processor.PhaseTask && b.currentTask > 0 {
 		b.broadcast(NewTaskEndEvent(b.phase, b.currentTask, fmt.Sprintf("task %d completed", b.currentTask)))
 		b.currentTask = 0
 	}
@@ -72,38 +57,35 @@ func (b *BroadcastLogger) PrintRaw(format string, args ...any) {
 }
 
 // PrintSection writes a section header and broadcasts it.
-// also emits task/iteration boundary events based on section name patterns.
-func (b *BroadcastLogger) PrintSection(name string) {
-	b.inner.PrintSection(name)
+// emits task/iteration boundary events based on section type.
+func (b *BroadcastLogger) PrintSection(section processor.Section) {
+	b.inner.PrintSection(section)
 
-	// check for task iteration pattern "task iteration N"
-	if matches := taskIterationPattern.FindStringSubmatch(name); matches != nil {
-		// error can be ignored: regex guarantees matches[1] contains only digits
-		taskNum, _ := strconv.Atoi(matches[1])
+	// emit boundary events based on section type
+	switch section.Type {
+	case processor.SectionTaskIteration:
 		// emit task end for previous task (if any)
 		if b.currentTask > 0 {
 			b.broadcast(NewTaskEndEvent(b.phase, b.currentTask, fmt.Sprintf("task %d completed", b.currentTask)))
 		}
-		b.currentTask = taskNum
-		b.broadcast(NewTaskStartEvent(b.phase, taskNum, name))
-	}
+		b.currentTask = section.Iteration
+		b.broadcast(NewTaskStartEvent(b.phase, section.Iteration, section.Label))
 
-	// check for review iteration pattern "claude review N"
-	if matches := reviewIterationPattern.FindStringSubmatch(name); matches != nil {
-		// error can be ignored: regex guarantees matches[1] contains only digits
-		iterNum, _ := strconv.Atoi(matches[1])
-		b.broadcast(NewIterationStartEvent(b.phase, iterNum, name))
-	}
+	case processor.SectionClaudeReview:
+		b.broadcast(NewIterationStartEvent(b.phase, section.Iteration, section.Label))
 
-	// check for codex iteration pattern "codex iteration N"
-	if matches := codexIterationPattern.FindStringSubmatch(name); matches != nil {
-		// error can be ignored: regex guarantees matches[1] contains only digits
-		iterNum, _ := strconv.Atoi(matches[1])
-		b.broadcast(NewIterationStartEvent(b.phase, iterNum, name))
+	case processor.SectionCodexIteration:
+		b.broadcast(NewIterationStartEvent(b.phase, section.Iteration, section.Label))
+
+	case processor.SectionGeneric, processor.SectionClaudeEval:
+		// no additional events for generic sections or claude eval
+
+	default:
+		// unknown section type - no additional events, but section event still emitted below
 	}
 
 	// always emit the section event
-	b.broadcast(NewSectionEvent(b.phase, name))
+	b.broadcast(NewSectionEvent(b.phase, section.Label))
 }
 
 // PrintAligned writes text with timestamp on each line and broadcasts it.

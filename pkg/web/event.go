@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 // EventType represents the type of event being streamed.
@@ -27,7 +27,7 @@ const (
 // Event represents a single event to be streamed to web clients.
 type Event struct {
 	Type         EventType      `json:"type"`
-	Phase        progress.Phase `json:"phase"`
+	Phase        processor.Phase `json:"phase"`
 	Section      string         `json:"section,omitempty"`
 	Text         string         `json:"text"`
 	Timestamp    time.Time      `json:"timestamp"`
@@ -37,7 +37,7 @@ type Event struct {
 }
 
 // NewOutputEvent creates an output event with current timestamp.
-func NewOutputEvent(phase progress.Phase, text string) Event {
+func NewOutputEvent(phase processor.Phase, text string) Event {
 	return Event{
 		Type:      EventTypeOutput,
 		Phase:     phase,
@@ -47,7 +47,7 @@ func NewOutputEvent(phase progress.Phase, text string) Event {
 }
 
 // NewSectionEvent creates a section header event.
-func NewSectionEvent(phase progress.Phase, name string) Event {
+func NewSectionEvent(phase processor.Phase, name string) Event {
 	return Event{
 		Type:      EventTypeSection,
 		Phase:     phase,
@@ -58,7 +58,7 @@ func NewSectionEvent(phase progress.Phase, name string) Event {
 }
 
 // NewErrorEvent creates an error event.
-func NewErrorEvent(phase progress.Phase, text string) Event {
+func NewErrorEvent(phase processor.Phase, text string) Event {
 	return Event{
 		Type:      EventTypeError,
 		Phase:     phase,
@@ -68,7 +68,7 @@ func NewErrorEvent(phase progress.Phase, text string) Event {
 }
 
 // NewWarnEvent creates a warning event.
-func NewWarnEvent(phase progress.Phase, text string) Event {
+func NewWarnEvent(phase processor.Phase, text string) Event {
 	return Event{
 		Type:      EventTypeWarn,
 		Phase:     phase,
@@ -78,7 +78,7 @@ func NewWarnEvent(phase progress.Phase, text string) Event {
 }
 
 // NewSignalEvent creates a signal event.
-func NewSignalEvent(phase progress.Phase, signal string) Event {
+func NewSignalEvent(phase processor.Phase, signal string) Event {
 	return Event{
 		Type:      EventTypeSignal,
 		Phase:     phase,
@@ -89,7 +89,7 @@ func NewSignalEvent(phase progress.Phase, signal string) Event {
 }
 
 // NewTaskStartEvent creates a task start boundary event.
-func NewTaskStartEvent(phase progress.Phase, taskNum int, text string) Event {
+func NewTaskStartEvent(phase processor.Phase, taskNum int, text string) Event {
 	return Event{
 		Type:      EventTypeTaskStart,
 		Phase:     phase,
@@ -100,7 +100,7 @@ func NewTaskStartEvent(phase progress.Phase, taskNum int, text string) Event {
 }
 
 // NewTaskEndEvent creates a task end boundary event.
-func NewTaskEndEvent(phase progress.Phase, taskNum int, text string) Event {
+func NewTaskEndEvent(phase processor.Phase, taskNum int, text string) Event {
 	return Event{
 		Type:      EventTypeTaskEnd,
 		Phase:     phase,
@@ -111,7 +111,7 @@ func NewTaskEndEvent(phase progress.Phase, taskNum int, text string) Event {
 }
 
 // NewIterationStartEvent creates an iteration start event.
-func NewIterationStartEvent(phase progress.Phase, iterationNum int, text string) Event {
+func NewIterationStartEvent(phase processor.Phase, iterationNum int, text string) Event {
 	return Event{
 		Type:         EventTypeIterationStart,
 		Phase:        phase,

@@ -486,30 +486,9 @@
         }
     }
 
-    // show disconnected state in status badge
-    function showDisconnected() {
-        statusBadge.textContent = 'DISCONNECTED';
-        statusBadge.className = 'status-badge failed';
-    }
-
-    // show reconnecting state in status badge
-    function showReconnecting() {
-        statusBadge.textContent = 'RECONNECTING';
-        statusBadge.className = 'status-badge';
-    }
-
-    // show connecting state in status badge (for initial connection)
-    function showConnecting() {
-        statusBadge.textContent = 'CONNECTING';
-        statusBadge.className = 'status-badge';
-    }
-
     // connect to SSE stream with exponential backoff
     function connect() {
-        if (state.isFirstConnect) {
-            showConnecting();
-        } else {
-            showReconnecting();
+        if (!state.isFirstConnect) {
             state.resetOnNextEvent = true;
         }
 
@@ -545,7 +524,6 @@
         source.onerror = function() {
             source.close();
             state.currentEventSource = null;
-            showDisconnected();
 
             // exponential backoff with max delay
             setTimeout(connect, state.reconnectDelay);

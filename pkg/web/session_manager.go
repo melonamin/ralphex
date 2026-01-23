@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 // SessionManager maintains a registry of all discovered sessions.
@@ -68,6 +69,62 @@ func (m *SessionManager) Discover(dir string) ([]string, error) {
 	}
 
 	return ids, nil
+}
+
+// DiscoverRecursive walks a directory tree and discovers all progress files.
+// unlike Discover, this searches subdirectories recursively.
+// returns the list of all discovered session IDs (deduplicated).
+func (m *SessionManager) DiscoverRecursive(root string) ([]string, error) {
+	seenDirs := make(map[string]bool)
+	seenIDs := make(map[string]bool)
+	var allIDs []string
+
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			// skip directories that can't be accessed
+			if d != nil && d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		// skip hidden directories
+		if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != root {
+			return filepath.SkipDir
+		}
+
+		// skip non-progress files
+		if d.IsDir() || !isProgressFile(path) {
+			return nil
+		}
+
+		// only call Discover once per directory
+		dir := filepath.Dir(path)
+		if seenDirs[dir] {
+			return nil
+		}
+		seenDirs[dir] = true
+
+		ids, discoverErr := m.Discover(dir)
+		if discoverErr != nil {
+			return nil //nolint:nilerr // best-effort discovery, errors for individual directories are ignored
+		}
+
+		for _, id := range ids {
+			if !seenIDs[id] {
+				seenIDs[id] = true
+				allIDs = append(allIDs, id)
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return allIDs, fmt.Errorf("walk directory %s: %w", root, err)
+	}
+
+	return allIDs, nil
 }
 
 // updateSession refreshes a session's state and metadata from its progress file.
@@ -211,13 +268,28 @@ func (m *SessionManager) RefreshStates() {
 }
 
 // sessionIDFromPath derives a session ID from the progress file path.
-// the ID is the filename without the "progress-" prefix and ".txt" suffix.
-// e.g., "progress-my-plan.txt" -> "my-plan"
+// the ID includes the filename (without the "progress-" prefix and ".txt" suffix)
+// plus an FNV-64a hash of the canonical absolute path to avoid collisions across directories.
+//
+// format: <plan-name>-<16-char-hex-hash>
+// example: "/tmp/progress-my-plan.txt" -> "my-plan-a1b2c3d4e5f67890"
+//
+// the hash ensures uniqueness when the same plan name exists in different directories.
+// the path is canonicalized (absolute + cleaned) before hashing for stability.
 func sessionIDFromPath(path string) string {
 	base := filepath.Base(path)
 	id := strings.TrimPrefix(base, "progress-")
 	id = strings.TrimSuffix(id, ".txt")
-	return id
+
+	canonical := path
+	if abs, err := filepath.Abs(path); err == nil {
+		canonical = abs
+	}
+	canonical = filepath.Clean(canonical)
+
+	hasher := fnv.New64a()
+	_, _ = hasher.Write([]byte(canonical))
+	return fmt.Sprintf("%s-%016x", id, hasher.Sum64())
 }
 
 // IsActive checks if a progress file is locked by another process.
@@ -315,7 +387,7 @@ func loadProgressFileIntoBuffer(path string, buffer *Buffer) {
 
 	scanner := bufio.NewScanner(f)
 	inHeader := true
-	phase := progress.PhaseTask
+	phase := processor.PhaseTask
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -388,18 +460,18 @@ func loadProgressFileIntoBuffer(path string, buffer *Buffer) {
 }
 
 // phaseFromSection determines the phase from a section name.
-func phaseFromSection(name string) progress.Phase {
+func phaseFromSection(name string) processor.Phase {
 	nameLower := strings.ToLower(name)
 	switch {
 	case strings.Contains(nameLower, "task"):
-		return progress.PhaseTask
+		return processor.PhaseTask
 	case strings.Contains(nameLower, "review"):
-		return progress.PhaseReview
+		return processor.PhaseReview
 	case strings.Contains(nameLower, "codex"):
-		return progress.PhaseCodex
+		return processor.PhaseCodex
 	case strings.Contains(nameLower, "claude-eval") || strings.Contains(nameLower, "claude eval"):
-		return progress.PhaseClaudeEval
+		return processor.PhaseClaudeEval
 	default:
-		return progress.PhaseTask
+		return processor.PhaseTask
 	}
 }

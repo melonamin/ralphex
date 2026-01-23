@@ -16,17 +16,20 @@ import (
 	"golang.org/x/term"
 
 	"github.com/umputun/ralphex/pkg/config"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
-// Phase represents execution phase for color coding.
-type Phase string
+// Phase is an alias to processor.Phase for backwards compatibility.
+//
+// Deprecated: use processor.Phase directly.
+type Phase = processor.Phase
 
-// Phase constants for execution stages.
+// Phase constants for execution stages - aliases to processor constants.
 const (
-	PhaseTask       Phase = "task"        // execution phase (green)
-	PhaseReview     Phase = "review"      // code review phase (cyan)
-	PhaseCodex      Phase = "codex"       // codex analysis phase (magenta)
-	PhaseClaudeEval Phase = "claude-eval" // claude evaluating codex (bright cyan)
+	PhaseTask       = processor.PhaseTask
+	PhaseReview     = processor.PhaseReview
+	PhaseCodex      = processor.PhaseCodex
+	PhaseClaudeEval = processor.PhaseClaudeEval
 )
 
 // Colors holds all color configuration for output formatting.
@@ -227,9 +230,9 @@ func (l *Logger) PrintRaw(format string, args ...any) {
 }
 
 // PrintSection writes a section header without timestamp in yellow.
-// format: "\n--- {name} ---\n"
-func (l *Logger) PrintSection(name string) {
-	header := fmt.Sprintf("\n--- %s ---\n", name)
+// format: "\n--- {label} ---\n"
+func (l *Logger) PrintSection(section processor.Section) {
+	header := fmt.Sprintf("\n--- %s ---\n", section.Label)
 	l.writeFile("%s", header)
 	l.writeStdout("%s", l.colors.Warn().Sprint(header))
 }
