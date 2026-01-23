@@ -467,6 +467,22 @@
             // create new collapsible section
             state.currentSection = createSectionHeader(event);
             output.appendChild(state.currentSection);
+        } else if (event.type === 'signal' && (event.signal === 'COMPLETED' || event.signal === 'FAILED')) {
+            // render completion message for terminal signals
+            var completionText = event.signal === 'COMPLETED' ? 'execution completed successfully' : 'execution failed';
+            var completionEvent = {
+                timestamp: event.timestamp,
+                phase: event.phase,
+                text: completionText,
+                type: 'output'
+            };
+            var line = createOutputLine(completionEvent);
+            if (state.currentSection) {
+                var content = state.currentSection.querySelector('.section-content');
+                content.appendChild(line);
+            } else {
+                output.appendChild(line);
+            }
         } else {
             // create output line
             var line = createOutputLine(event);
