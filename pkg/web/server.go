@@ -19,6 +19,10 @@ import (
 //go:embed templates static
 var embeddedFS embed.FS
 
+// sseHistoryFlushInterval is the number of history events to send before flushing.
+// this prevents buffering too much data when sending large event histories to clients.
+const sseHistoryFlushInterval = 100
+
 // ServerConfig holds configuration for the web server.
 type ServerConfig struct {
 	Port     int    // port to listen on
@@ -265,9 +269,13 @@ func loadPlanWithFallback(path string) (*Plan, error) {
 // handleEvents serves the SSE stream.
 // in multi-session mode, accepts ?session=<id> query parameter.
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.URL.Query().Get("session")
+	log.Printf("[SSE] connection start: session=%s", sessionID)
+
 	// get session-specific hub and buffer
 	hub, buffer, err := s.getSessionResources(r)
 	if err != nil {
+		log.Printf("[SSE] session not found: %s", sessionID)
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -288,20 +296,31 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	// subscribe to hub
 	eventCh, err := hub.Subscribe()
 	if err != nil {
+		log.Printf("[SSE] subscribe failed: %v", err)
 		http.Error(w, "too many connections", http.StatusServiceUnavailable)
 		return
 	}
-	defer hub.Unsubscribe(eventCh)
+	defer func() {
+		hub.Unsubscribe(eventCh)
+		log.Printf("[SSE] connection end: session=%s", sessionID)
+	}()
 
-	// send history first
-	for _, event := range buffer.All() {
+	// send history first (with periodic flushes for large buffers)
+	events := buffer.All()
+	log.Printf("[SSE] sending %d history events: session=%s", len(events), sessionID)
+	for i, event := range events {
 		data, err := event.JSON()
 		if err != nil {
 			continue
 		}
 		fmt.Fprintf(w, "data: %s\n\n", data)
+		// flush periodically to avoid buffering too much
+		if (i+1)%sseHistoryFlushInterval == 0 {
+			flusher.Flush()
+		}
 	}
 	flusher.Flush()
+	log.Printf("[SSE] history sent, entering event loop: session=%s", sessionID)
 
 	// stream new events
 	for {
@@ -340,7 +359,14 @@ func (s *Server) getSessionResources(r *http.Request) (*Hub, *Buffer, error) {
 	// multi-session mode - look up session
 	session := s.sm.Get(sessionID)
 	if session == nil {
+		log.Printf("[SSE] session lookup failed: %s (not in manager)", sessionID)
 		return nil, nil, fmt.Errorf("session not found: %s", sessionID)
+	}
+
+	// defensive check for nil hub/buffer
+	if session.Hub == nil || session.Buffer == nil {
+		log.Printf("[SSE] session has nil hub/buffer: %s", sessionID)
+		return nil, nil, fmt.Errorf("session not initialized: %s", sessionID)
 	}
 
 	return session.Hub, session.Buffer, nil

@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 func TestNewServer(t *testing.T) {
@@ -109,7 +109,7 @@ func TestServer_HandleEvents(t *testing.T) {
 		require.NoError(t, err)
 
 		// add some history
-		buffer.Add(NewOutputEvent(progress.PhaseTask, "historical event"))
+		buffer.Add(NewOutputEvent(processor.PhaseTask, "historical event"))
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -146,7 +146,7 @@ func TestServer_HandleEvents(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		// broadcast event
-		hub.Broadcast(NewOutputEvent(progress.PhaseTask, "live event"))
+		hub.Broadcast(NewOutputEvent(processor.PhaseTask, "live event"))
 
 		// wait for handler to finish
 		<-done
@@ -199,6 +199,18 @@ func TestServer_Stop(t *testing.T) {
 		err = srv.Stop()
 		assert.NoError(t, err)
 	})
+
+	t.Run("multiple stop calls without start are safe", func(t *testing.T) {
+		hub := NewHub()
+		buffer := NewBuffer(100)
+		srv, err := NewServer(ServerConfig{}, hub, buffer)
+		require.NoError(t, err)
+
+		// multiple stop calls should be safe
+		assert.NoError(t, srv.Stop())
+		assert.NoError(t, srv.Stop())
+		assert.NoError(t, srv.Stop())
+	})
 }
 
 func TestServer_StaticFiles(t *testing.T) {
@@ -231,14 +243,14 @@ func TestServer_SSE_LateJoiningClient(t *testing.T) {
 	require.NoError(t, err)
 
 	// broadcast some events before any client connects
-	hub.Broadcast(NewOutputEvent(progress.PhaseTask, "event 1"))
-	buffer.Add(NewOutputEvent(progress.PhaseTask, "event 1"))
+	hub.Broadcast(NewOutputEvent(processor.PhaseTask, "event 1"))
+	buffer.Add(NewOutputEvent(processor.PhaseTask, "event 1"))
 
-	hub.Broadcast(NewSectionEvent(progress.PhaseReview, "Review Section"))
-	buffer.Add(NewSectionEvent(progress.PhaseReview, "Review Section"))
+	hub.Broadcast(NewSectionEvent(processor.PhaseReview, "Review Section"))
+	buffer.Add(NewSectionEvent(processor.PhaseReview, "Review Section"))
 
-	hub.Broadcast(NewOutputEvent(progress.PhaseReview, "event 2"))
-	buffer.Add(NewOutputEvent(progress.PhaseReview, "event 2"))
+	hub.Broadcast(NewOutputEvent(processor.PhaseReview, "event 2"))
+	buffer.Add(NewOutputEvent(processor.PhaseReview, "event 2"))
 
 	// now a late-joining client connects
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
@@ -434,7 +446,7 @@ func TestNewServerWithSessions(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotNil(t, srv)
-	assert.Nil(t, srv.Hub())   // no direct hub in multi-session mode
+	assert.Nil(t, srv.Hub())    // no direct hub in multi-session mode
 	assert.Nil(t, srv.Buffer()) // no direct buffer in multi-session mode
 }
 
@@ -476,6 +488,7 @@ Started: 2026-01-22 10:30:00
 		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "progress-test-plan.txt"), []byte(progressContent), 0o600))
 
 		sm := NewSessionManager()
+		progressPath := filepath.Join(tmpDir, "progress-test-plan.txt")
 		_, err := sm.Discover(tmpDir)
 		require.NoError(t, err)
 
@@ -500,7 +513,7 @@ Started: 2026-01-22 10:30:00
 		require.NoError(t, json.Unmarshal(body, &sessions))
 
 		require.Len(t, sessions, 1)
-		assert.Equal(t, "test-plan", sessions[0].ID)
+		assert.Equal(t, sessionIDFromPath(progressPath), sessions[0].ID)
 		assert.Equal(t, SessionStateCompleted, sessions[0].State)
 		assert.Equal(t, "docs/plans/test-plan.md", sessions[0].PlanPath)
 		assert.Equal(t, "feature-branch", sessions[0].Branch)
@@ -564,6 +577,7 @@ func TestServer_HandleEvents_WithSession(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		// create progress file
+		progressPath := filepath.Join(tmpDir, "progress-mysession.txt")
 		progressContent := `# Ralphex Progress Log
 Plan: test.md
 Branch: main
@@ -571,16 +585,17 @@ Mode: full
 Started: 2026-01-22 10:30:00
 ------------------------------------------------------------
 `
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "progress-mysession.txt"), []byte(progressContent), 0o600))
+		require.NoError(t, os.WriteFile(progressPath, []byte(progressContent), 0o600))
 
 		sm := NewSessionManager()
 		_, err := sm.Discover(tmpDir)
 		require.NoError(t, err)
 
 		// add event to session buffer
-		session := sm.Get("mysession")
+		sessionID := sessionIDFromPath(progressPath)
+		session := sm.Get(sessionID)
 		require.NotNil(t, session)
-		session.Buffer.Add(NewOutputEvent(progress.PhaseTask, "test event"))
+		session.Buffer.Add(NewOutputEvent(processor.PhaseTask, "test event"))
 
 		srv, err := NewServerWithSessions(ServerConfig{Port: 8080}, sm)
 		require.NoError(t, err)
@@ -588,7 +603,7 @@ Started: 2026-01-22 10:30:00
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		req := httptest.NewRequest(http.MethodGet, "/events?session=mysession", http.NoBody).WithContext(ctx)
+		req := httptest.NewRequest(http.MethodGet, "/events?session="+sessionID, http.NoBody).WithContext(ctx)
 		w := httptest.NewRecorder()
 
 		srv.handleEvents(w, req)
@@ -625,13 +640,14 @@ func TestServer_HandlePlan_WithSession(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		// create progress file without plan path
+		progressPath := filepath.Join(tmpDir, "progress-noplan.txt")
 		progressContent := `# Ralphex Progress Log
 Branch: main
 Mode: review
 Started: 2026-01-22 10:30:00
 ------------------------------------------------------------
 `
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "progress-noplan.txt"), []byte(progressContent), 0o600))
+		require.NoError(t, os.WriteFile(progressPath, []byte(progressContent), 0o600))
 
 		sm := NewSessionManager()
 		_, err := sm.Discover(tmpDir)
@@ -640,7 +656,8 @@ Started: 2026-01-22 10:30:00
 		srv, err := NewServerWithSessions(ServerConfig{Port: 8080}, sm)
 		require.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/plan?session=noplan", http.NoBody)
+		sessionID := sessionIDFromPath(progressPath)
+		req := httptest.NewRequest(http.MethodGet, "/api/plan?session="+sessionID, http.NoBody)
 		w := httptest.NewRecorder()
 
 		srv.handlePlan(w, req)
@@ -668,8 +685,9 @@ Started: 2026-01-22 10:30:00
 		require.NoError(t, os.WriteFile(planPath, []byte(planContent), 0o600))
 
 		// create progress file referencing the plan
+		progressPath := filepath.Join(tmpDir, "progress-withplan.txt")
 		progressContent := "# Ralphex Progress Log\nPlan: " + planPath + "\nBranch: main\nMode: full\nStarted: 2026-01-22 10:30:00\n------------------------------------------------------------\n"
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "progress-withplan.txt"), []byte(progressContent), 0o600))
+		require.NoError(t, os.WriteFile(progressPath, []byte(progressContent), 0o600))
 
 		sm := NewSessionManager()
 		_, err := sm.Discover(tmpDir)
@@ -678,7 +696,8 @@ Started: 2026-01-22 10:30:00
 		srv, err := NewServerWithSessions(ServerConfig{Port: 8080}, sm)
 		require.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/plan?session=withplan", http.NoBody)
+		sessionID := sessionIDFromPath(progressPath)
+		req := httptest.NewRequest(http.MethodGet, "/api/plan?session="+sessionID, http.NoBody)
 		w := httptest.NewRecorder()
 
 		srv.handlePlan(w, req)
@@ -713,8 +732,9 @@ Started: 2026-01-22 10:30:00
 
 		// create progress file referencing original (non-existent) path
 		originalPlanPath := filepath.Join(plansDir, "done-plan.md")
+		progressPath := filepath.Join(tmpDir, "progress-fallback.txt")
 		progressContent := "# Ralphex Progress Log\nPlan: " + originalPlanPath + "\nBranch: main\nMode: full\nStarted: 2026-01-22 10:30:00\n------------------------------------------------------------\n"
-		require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "progress-fallback.txt"), []byte(progressContent), 0o600))
+		require.NoError(t, os.WriteFile(progressPath, []byte(progressContent), 0o600))
 
 		sm := NewSessionManager()
 		_, err := sm.Discover(tmpDir)
@@ -723,7 +743,8 @@ Started: 2026-01-22 10:30:00
 		srv, err := NewServerWithSessions(ServerConfig{Port: 8080}, sm)
 		require.NoError(t, err)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/plan?session=fallback", http.NoBody)
+		sessionID := sessionIDFromPath(progressPath)
+		req := httptest.NewRequest(http.MethodGet, "/api/plan?session="+sessionID, http.NoBody)
 		w := httptest.NewRecorder()
 
 		srv.handlePlan(w, req)
@@ -735,5 +756,55 @@ Started: 2026-01-22 10:30:00
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		assert.Contains(t, string(body), "Completed Session Plan")
+	})
+}
+
+func TestLoadPlanWithFallback(t *testing.T) {
+	t.Run("loads plan from primary path", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		planPath := filepath.Join(tmpDir, "test-plan.md")
+		planContent := `# Test Plan
+
+### Task 1: Test
+
+- [ ] Item
+`
+		require.NoError(t, os.WriteFile(planPath, []byte(planContent), 0o600))
+
+		plan, err := loadPlanWithFallback(planPath)
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, "Test Plan", plan.Title)
+	})
+
+	t.Run("falls back to completed directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		completedDir := filepath.Join(tmpDir, "completed")
+		require.NoError(t, os.MkdirAll(completedDir, 0o750))
+
+		// plan only exists in completed directory
+		completedPlan := filepath.Join(completedDir, "test-plan.md")
+		planContent := `# Completed Plan
+
+### Task 1: Done
+
+- [x] Item
+`
+		require.NoError(t, os.WriteFile(completedPlan, []byte(planContent), 0o600))
+
+		// request the non-existent original path
+		originalPath := filepath.Join(tmpDir, "test-plan.md")
+		plan, err := loadPlanWithFallback(originalPath)
+		require.NoError(t, err)
+		require.NotNil(t, plan)
+		assert.Equal(t, "Completed Plan", plan.Title)
+	})
+
+	t.Run("returns error when not found in either location", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		nonexistentPath := filepath.Join(tmpDir, "nonexistent.md")
+
+		_, err := loadPlanWithFallback(nonexistentPath)
+		require.Error(t, err)
 	})
 }

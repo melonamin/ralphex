@@ -3,6 +3,8 @@ package web
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -23,23 +25,27 @@ func TestSessionManager_Discover(t *testing.T) {
 		dir := t.TempDir()
 
 		// create test progress files
-		createProgressFile(t, filepath.Join(dir, "progress-plan1.txt"), "docs/plan1.md", "main", "full")
-		createProgressFile(t, filepath.Join(dir, "progress-plan2.txt"), "docs/plan2.md", "feature", "review")
+		path1 := filepath.Join(dir, "progress-plan1.txt")
+		path2 := filepath.Join(dir, "progress-plan2.txt")
+		createProgressFile(t, path1, "docs/plan1.md", "main", "full")
+		createProgressFile(t, path2, "docs/plan2.md", "feature", "review")
 
 		m := NewSessionManager()
 		ids, err := m.Discover(dir)
 
 		require.NoError(t, err)
 		assert.Len(t, ids, 2)
-		assert.Contains(t, ids, "plan1")
-		assert.Contains(t, ids, "plan2")
+		id1 := sessionIDFromPath(path1)
+		id2 := sessionIDFromPath(path2)
+		assert.Contains(t, ids, id1)
+		assert.Contains(t, ids, id2)
 
 		// verify sessions were created
-		s1 := m.Get("plan1")
+		s1 := m.Get(id1)
 		require.NotNil(t, s1)
 		assert.Equal(t, "docs/plan1.md", s1.GetMetadata().PlanPath)
 
-		s2 := m.Get("plan2")
+		s2 := m.Get(id2)
 		require.NotNil(t, s2)
 		assert.Equal(t, "docs/plan2.md", s2.GetMetadata().PlanPath)
 	})
@@ -62,14 +68,15 @@ func TestSessionManager_Discover(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "progress.txt"), []byte("test"), 0o600))
 
 		// create matching file
-		createProgressFile(t, filepath.Join(dir, "progress-valid.txt"), "plan.md", "main", "full")
+		path := filepath.Join(dir, "progress-valid.txt")
+		createProgressFile(t, path, "plan.md", "main", "full")
 
 		m := NewSessionManager()
 		ids, err := m.Discover(dir)
 
 		require.NoError(t, err)
 		assert.Len(t, ids, 1)
-		assert.Contains(t, ids, "valid")
+		assert.Contains(t, ids, sessionIDFromPath(path))
 	})
 
 	t.Run("updates existing sessions", func(t *testing.T) {
@@ -83,7 +90,8 @@ func TestSessionManager_Discover(t *testing.T) {
 		_, err := m.Discover(dir)
 		require.NoError(t, err)
 
-		s := m.Get("test")
+		id := sessionIDFromPath(path)
+		s := m.Get(id)
 		require.NotNil(t, s)
 		assert.Equal(t, "main", s.GetMetadata().Branch)
 
@@ -108,14 +116,16 @@ func TestSessionManager_Get(t *testing.T) {
 
 	t.Run("returns session after discover", func(t *testing.T) {
 		dir := t.TempDir()
-		createProgressFile(t, filepath.Join(dir, "progress-test.txt"), "plan.md", "main", "full")
+		path := filepath.Join(dir, "progress-test.txt")
+		createProgressFile(t, path, "plan.md", "main", "full")
 
 		_, err := m.Discover(dir)
 		require.NoError(t, err)
 
-		s := m.Get("test")
+		id := sessionIDFromPath(path)
+		s := m.Get(id)
 		assert.NotNil(t, s)
-		assert.Equal(t, "test", s.ID)
+		assert.Equal(t, id, s.ID)
 	})
 }
 
@@ -140,11 +150,12 @@ func TestSessionManager_Remove(t *testing.T) {
 	_, err := m.Discover(dir)
 	require.NoError(t, err)
 
-	require.NotNil(t, m.Get("test"))
+	id := sessionIDFromPath(filepath.Join(dir, "progress-test.txt"))
+	require.NotNil(t, m.Get(id))
 
-	m.Remove("test")
+	m.Remove(id)
 
-	assert.Nil(t, m.Get("test"))
+	assert.Nil(t, m.Get(id))
 }
 
 func TestSessionManager_Close(t *testing.T) {
@@ -164,22 +175,30 @@ func TestSessionManager_Close(t *testing.T) {
 }
 
 func TestSessionIDFromPath(t *testing.T) {
-	tests := []struct {
-		path string
-		want string
-	}{
-		{"/tmp/progress-my-plan.txt", "my-plan"},
-		{"/path/to/progress-test.txt", "test"},
-		{"progress-simple.txt", "simple"},
-		{"/dir/progress-multi-word-name.txt", "multi-word-name"},
-	}
+	t.Run("includes base name and hash", func(t *testing.T) {
+		got := sessionIDFromPath("/tmp/progress-my-plan.txt")
+		assert.True(t, strings.HasPrefix(got, "my-plan-"))
 
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got := sessionIDFromPath(tt.path)
-			assert.Equal(t, tt.want, got)
-		})
-	}
+		lastDash := strings.LastIndex(got, "-")
+		require.NotEqual(t, -1, lastDash)
+		suffix := got[lastDash+1:]
+		assert.Len(t, suffix, 16)
+		_, err := strconv.ParseUint(suffix, 16, 64)
+		assert.NoError(t, err)
+	})
+
+	t.Run("different paths produce different IDs", func(t *testing.T) {
+		id1 := sessionIDFromPath("/tmp/progress-test.txt")
+		id2 := sessionIDFromPath("/other/progress-test.txt")
+		assert.NotEqual(t, id1, id2)
+	})
+
+	t.Run("same path is stable", func(t *testing.T) {
+		path := "/tmp/progress-simple.txt"
+		id1 := sessionIDFromPath(path)
+		id2 := sessionIDFromPath(path)
+		assert.Equal(t, id1, id2)
+	})
 }
 
 func TestIsActive(t *testing.T) {
@@ -393,7 +412,8 @@ Started: 2026-01-22 10:00:00
 	_, err := m.Discover(dir)
 	require.NoError(t, err)
 
-	session := m.Get("completed")
+	sessionID := sessionIDFromPath(path)
+	session := m.Get(sessionID)
 	require.NotNil(t, session)
 
 	// verify the session state is completed
@@ -402,6 +422,59 @@ Started: 2026-01-22 10:00:00
 	// verify the buffer has content loaded
 	events := session.Buffer.All()
 	assert.GreaterOrEqual(t, len(events), 2, "expected at least 2 events in buffer for completed session")
+}
+
+func TestSessionManager_RefreshStates(t *testing.T) {
+	t.Run("skips non-tailing sessions", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "progress-test.txt")
+		createProgressFile(t, path, "plan.md", "main", "full")
+
+		m := NewSessionManager()
+		_, err := m.Discover(dir)
+		require.NoError(t, err)
+
+		sessionID := sessionIDFromPath(path)
+		session := m.Get(sessionID)
+		require.NotNil(t, session)
+
+		// session is not tailing
+		assert.False(t, session.IsTailing())
+		initialState := session.GetState()
+
+		// RefreshStates should skip non-tailing sessions
+		m.RefreshStates()
+
+		// state should remain unchanged
+		assert.Equal(t, initialState, session.GetState())
+	})
+
+	t.Run("marks unlocked tailing session as completed", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "progress-test.txt")
+		createProgressFile(t, path, "plan.md", "main", "full")
+
+		m := NewSessionManager()
+		_, err := m.Discover(dir)
+		require.NoError(t, err)
+
+		sessionID := sessionIDFromPath(path)
+		session := m.Get(sessionID)
+		require.NotNil(t, session)
+
+		// manually start tailing and set to active
+		err = session.StartTailing(true)
+		require.NoError(t, err)
+		assert.True(t, session.IsTailing())
+
+		// RefreshStates should detect the unlocked file and mark as completed
+		m.RefreshStates()
+
+		// since file is not locked by another process, it should be marked completed
+		time.Sleep(50 * time.Millisecond) // give goroutine time to stop
+		assert.Equal(t, SessionStateCompleted, session.GetState())
+		assert.False(t, session.IsTailing())
+	})
 }
 
 // helper to create a progress file with standard header

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 func TestNewTailer(t *testing.T) {
@@ -18,19 +18,19 @@ func TestNewTailer(t *testing.T) {
 
 		assert.Equal(t, "/tmp/test.txt", tailer.path)
 		assert.Equal(t, 100*time.Millisecond, tailer.config.PollInterval)
-		assert.Equal(t, progress.PhaseTask, tailer.config.InitialPhase)
+		assert.Equal(t, processor.PhaseTask, tailer.config.InitialPhase)
 		assert.False(t, tailer.running)
 	})
 
 	t.Run("uses provided config", func(t *testing.T) {
 		cfg := TailerConfig{
 			PollInterval: 200 * time.Millisecond,
-			InitialPhase: progress.PhaseReview,
+			InitialPhase: processor.PhaseReview,
 		}
 		tailer := NewTailer("/tmp/test.txt", cfg)
 
 		assert.Equal(t, 200*time.Millisecond, tailer.config.PollInterval)
-		assert.Equal(t, progress.PhaseReview, tailer.config.InitialPhase)
+		assert.Equal(t, processor.PhaseReview, tailer.config.InitialPhase)
 	})
 }
 
@@ -44,7 +44,7 @@ func TestTailer_ParseLine(t *testing.T) {
 		require.NotNil(t, event)
 		assert.Equal(t, EventTypeOutput, event.Type)
 		assert.Equal(t, "Hello world", event.Text)
-		assert.Equal(t, progress.PhaseTask, event.Phase)
+		assert.Equal(t, processor.PhaseTask, event.Phase)
 		assert.Equal(t, 2026, event.Timestamp.Year())
 		assert.Equal(t, time.January, event.Timestamp.Month())
 		assert.Equal(t, 22, event.Timestamp.Day())
@@ -121,14 +121,14 @@ func TestTailer_UpdatePhaseFromSection(t *testing.T) {
 	tests := []struct {
 		name     string
 		section  string
-		expected progress.Phase
+		expected processor.Phase
 	}{
-		{"task section", "task iteration 1", progress.PhaseTask},
-		{"review section", "review iteration 2", progress.PhaseReview},
-		{"codex section", "codex analysis", progress.PhaseCodex},
-		{"claude-eval section", "claude-eval phase", progress.PhaseClaudeEval},
-		{"claude eval section", "claude eval phase", progress.PhaseClaudeEval},
-		{"uppercase task", "TASK Phase", progress.PhaseTask},
+		{"task section", "task iteration 1", processor.PhaseTask},
+		{"review section", "review iteration 2", processor.PhaseReview},
+		{"codex section", "codex analysis", processor.PhaseCodex},
+		{"claude-eval section", "claude-eval phase", processor.PhaseClaudeEval},
+		{"claude eval section", "claude eval phase", processor.PhaseClaudeEval},
+		{"uppercase task", "TASK Phase", processor.PhaseTask},
 	}
 
 	for _, tt := range tests {
@@ -162,7 +162,7 @@ Started: 2026-01-22 10:30:00
 
 		tailer := NewTailer(progressFile, TailerConfig{
 			PollInterval: 10 * time.Millisecond,
-			InitialPhase: progress.PhaseTask,
+			InitialPhase: processor.PhaseTask,
 		})
 
 		err = tailer.Start(true)
@@ -215,7 +215,7 @@ Started: 2026-01-22 10:30:00
 
 		tailer := NewTailer(progressFile, TailerConfig{
 			PollInterval: 10 * time.Millisecond,
-			InitialPhase: progress.PhaseTask,
+			InitialPhase: processor.PhaseTask,
 		})
 
 		err = tailer.Start(true)
@@ -265,7 +265,7 @@ Started: 2026-01-22 10:30:00
 
 		tailer := NewTailer(progressFile, TailerConfig{
 			PollInterval: 10 * time.Millisecond,
-			InitialPhase: progress.PhaseTask,
+			InitialPhase: processor.PhaseTask,
 		})
 
 		// start from end (not fromStart)
@@ -325,6 +325,70 @@ Started: 2026-01-22 10:30:00
 	})
 }
 
+func TestTailer_Stop(t *testing.T) {
+	t.Run("stop before start is safe", func(t *testing.T) {
+		tailer := NewTailer("/nonexistent", DefaultTailerConfig())
+
+		// should not panic
+		tailer.Stop()
+		assert.False(t, tailer.IsRunning())
+	})
+
+	t.Run("concurrent stop calls are safe", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := filepath.Join(tmpDir, "progress-test.txt")
+		err := os.WriteFile(progressFile, []byte("test"), 0o600)
+		require.NoError(t, err)
+
+		tailer := NewTailer(progressFile, TailerConfig{
+			PollInterval: 10 * time.Millisecond,
+		})
+
+		err = tailer.Start(true)
+		require.NoError(t, err)
+
+		// launch multiple concurrent stop calls
+		done := make(chan struct{})
+		for range 10 {
+			go func() {
+				tailer.Stop()
+				done <- struct{}{}
+			}()
+		}
+
+		// wait for all to complete
+		for range 10 {
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for concurrent stops")
+			}
+		}
+
+		assert.False(t, tailer.IsRunning())
+	})
+
+	t.Run("stop blocks until goroutine exits", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := filepath.Join(tmpDir, "progress-test.txt")
+		err := os.WriteFile(progressFile, []byte("test"), 0o600)
+		require.NoError(t, err)
+
+		tailer := NewTailer(progressFile, TailerConfig{
+			PollInterval: 10 * time.Millisecond,
+		})
+
+		err = tailer.Start(true)
+		require.NoError(t, err)
+		assert.True(t, tailer.IsRunning())
+
+		tailer.Stop()
+
+		// immediately after Stop returns, IsRunning should be false
+		assert.False(t, tailer.IsRunning())
+	})
+}
+
 func TestDetectEventType(t *testing.T) {
 	tests := []struct {
 		text     string
@@ -335,6 +399,7 @@ func TestDetectEventType(t *testing.T) {
 		{"WARN: be careful", EventTypeWarn},
 		{"warn: lowercase", EventTypeWarn},
 		{"<<<RALPHEX:COMPLETED>>>", EventTypeSignal},
+		{"ALL_TASKS_DONE", EventTypeSignal},
 		{"normal output", EventTypeOutput},
 	}
 
@@ -354,6 +419,12 @@ func TestExtractSignalFromText(t *testing.T) {
 		{"<<<RALPHEX:COMPLETED>>>", "COMPLETED"},
 		{"<<<RALPHEX:FAILED>>>", "FAILED"},
 		{"<<<RALPHEX:REVIEW_DONE>>>", "REVIEW_DONE"},
+		{"ALL_TASKS_DONE", "COMPLETED"},
+		{"TASK_FAILED", "FAILED"},
+		{"REVIEW_DONE", "REVIEW_DONE"},
+		{"CODEX_REVIEW_DONE", "CODEX_REVIEW_DONE"},
+		{"COMPLETED", "COMPLETED"},
+		{"FAILED", "FAILED"},
 		{"some text <<<RALPHEX:SIGNAL>>> more text", "SIGNAL"},
 		{"no signal here", ""},
 		{"<<<RALPHEX:incomplete", ""},

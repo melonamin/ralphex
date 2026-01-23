@@ -3,7 +3,7 @@ package web
 import (
 	"sync"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 // DefaultBufferSize is the default maximum number of events to keep in the buffer.
@@ -19,7 +19,7 @@ type Buffer struct {
 	count    int // total events written (for full detection)
 
 	// phase indexes store positions of events by phase for quick filtering
-	phaseIndex map[progress.Phase][]int
+	phaseIndex map[processor.Phase][]int
 }
 
 // NewBuffer creates a new ring buffer with the specified max size.
@@ -31,7 +31,7 @@ func NewBuffer(maxSize int) *Buffer {
 	return &Buffer{
 		events:     make([]Event, maxSize),
 		maxSize:    maxSize,
-		phaseIndex: make(map[progress.Phase][]int),
+		phaseIndex: make(map[processor.Phase][]int),
 	}
 }
 
@@ -105,7 +105,7 @@ func (b *Buffer) All() []Event {
 }
 
 // ByPhase returns all events for the given phase in chronological order.
-func (b *Buffer) ByPhase(phase progress.Phase) []Event {
+func (b *Buffer) ByPhase(phase processor.Phase) []Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
@@ -152,5 +152,5 @@ func (b *Buffer) Clear() {
 	b.events = make([]Event, b.maxSize)
 	b.writePos = 0
 	b.count = 0
-	b.phaseIndex = make(map[progress.Phase][]int)
+	b.phaseIndex = make(map[processor.Phase][]int)
 }

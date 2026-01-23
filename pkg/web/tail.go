@@ -11,20 +11,20 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/umputun/ralphex/pkg/progress"
+	"github.com/umputun/ralphex/pkg/processor"
 )
 
 // TailerConfig holds configuration for the Tailer.
 type TailerConfig struct {
 	PollInterval time.Duration // how often to check for new content (default: 100ms)
-	InitialPhase progress.Phase // phase to use for events (default: PhaseTask)
+	InitialPhase processor.Phase // phase to use for events (default: PhaseTask)
 }
 
 // DefaultTailerConfig returns default configuration.
 func DefaultTailerConfig() TailerConfig {
 	return TailerConfig{
 		PollInterval: 100 * time.Millisecond,
-		InitialPhase: progress.PhaseTask,
+		InitialPhase: processor.PhaseTask,
 	}
 }
 
@@ -42,7 +42,7 @@ type Tailer struct {
 	stopCh   chan struct{}
 	doneCh   chan struct{}
 	eventCh  chan Event
-	phase    progress.Phase
+	phase    processor.Phase
 	inHeader bool // true until we pass the header separator
 }
 
@@ -53,7 +53,7 @@ func NewTailer(path string, config TailerConfig) *Tailer {
 		config.PollInterval = 100 * time.Millisecond
 	}
 	if config.InitialPhase == "" {
-		config.InitialPhase = progress.PhaseTask
+		config.InitialPhase = processor.PhaseTask
 	}
 
 	return &Tailer{
@@ -291,18 +291,9 @@ func (t *Tailer) parseLine(line string) *Event {
 }
 
 // updatePhaseFromSection updates the current phase based on section name.
+// uses the shared phaseFromSection helper to avoid duplicate logic.
 func (t *Tailer) updatePhaseFromSection(name string) {
-	nameLower := strings.ToLower(name)
-	switch {
-	case strings.Contains(nameLower, "task"):
-		t.phase = progress.PhaseTask
-	case strings.Contains(nameLower, "review"):
-		t.phase = progress.PhaseReview
-	case strings.Contains(nameLower, "codex"):
-		t.phase = progress.PhaseCodex
-	case strings.Contains(nameLower, "claude-eval") || strings.Contains(nameLower, "claude eval"):
-		t.phase = progress.PhaseClaudeEval
-	}
+	t.phase = phaseFromSection(name)
 }
 
 // detectEventType determines the event type from line content.
@@ -315,22 +306,23 @@ func detectEventType(text string) EventType {
 	if strings.HasPrefix(textLower, "warn:") || strings.HasPrefix(text, "WARN:") {
 		return EventTypeWarn
 	}
-	if strings.Contains(text, "<<<RALPHEX:") {
+	if extractSignalFromText(text) != "" {
 		return EventTypeSignal
 	}
 
 	return EventTypeOutput
 }
 
-// extractSignalFromText extracts normalized signal name from <<<RALPHEX:SIGNAL>>> format.
-// returns "COMPLETED" for ALL_TASKS_DONE, "FAILED" for TASK_FAILED, or raw signal for others.
+// extractSignalFromText extracts normalized signal name from <<<RALPHEX:SIGNAL>>> format
+// or plain signal markers like ALL_TASKS_DONE, TASK_FAILED, REVIEW_DONE.
+// returns "COMPLETED" for ALL_TASKS_DONE, "FAILED" for TASK_FAILED, or raw signal for unknown tokens.
 func extractSignalFromText(text string) string {
 	const prefix = "<<<RALPHEX:"
 	const suffix = ">>>"
 
 	start := strings.Index(text, prefix)
 	if start == -1 {
-		return ""
+		return normalizePlainSignal(text)
 	}
 
 	end := strings.Index(text[start:], suffix)
@@ -340,12 +332,39 @@ func extractSignalFromText(text string) string {
 
 	rawSignal := text[start+len(prefix) : start+end]
 
-	// normalize signal names to match broadcast_logger output
+	return normalizeTokenSignal(rawSignal)
+}
+
+func normalizePlainSignal(text string) string {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return ""
+	}
+	switch trimmed {
+	case "ALL_TASKS_DONE", "COMPLETED":
+		return "COMPLETED"
+	case "TASK_FAILED", "ALL_TASKS_FAILED", "FAILED":
+		return "FAILED"
+	case "REVIEW_DONE":
+		return "REVIEW_DONE"
+	case "CODEX_REVIEW_DONE":
+		return "CODEX_REVIEW_DONE"
+	default:
+		return ""
+	}
+}
+
+// normalizeTokenSignal maps raw token signals to dashboard-friendly values.
+func normalizeTokenSignal(rawSignal string) string {
 	switch rawSignal {
 	case "ALL_TASKS_DONE":
 		return "COMPLETED"
 	case "TASK_FAILED", "ALL_TASKS_FAILED":
 		return "FAILED"
+	case "REVIEW_DONE":
+		return "REVIEW_DONE"
+	case "CODEX_REVIEW_DONE":
+		return "CODEX_REVIEW_DONE"
 	default:
 		return rawSignal
 	}

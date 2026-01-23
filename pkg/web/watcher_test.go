@@ -202,9 +202,10 @@ Started: 2026-01-22 10:00:00
 	time.Sleep(200 * time.Millisecond)
 
 	// verify session was discovered
-	session := sm.Get("test")
+	expectedID := sessionIDFromPath(progressFile)
+	session := sm.Get(expectedID)
 	require.NotNil(t, session, "session should be discovered")
-	assert.Equal(t, "test", session.ID)
+	assert.Equal(t, expectedID, session.ID)
 }
 
 func TestWatcher_IgnoresNonProgressFiles(t *testing.T) {
@@ -271,7 +272,8 @@ Started: 2026-01-22 10:00:00
 	time.Sleep(200 * time.Millisecond)
 
 	// verify session was discovered
-	session := sm.Get("subtest")
+	sessionID := sessionIDFromPath(progressFile)
+	session := sm.Get(sessionID)
 	require.NotNil(t, session, "session in subdirectory should be discovered")
 }
 
@@ -290,6 +292,9 @@ Started: 2026-01-22 10:00:00
 `
 	require.NoError(t, os.WriteFile(progressFile, []byte(header), 0o600))
 
+	// compute session ID before starting watcher (path won't change)
+	sessionID := sessionIDFromPath(progressFile)
+
 	w, err := NewWatcher([]string{tmpDir}, sm)
 	require.NoError(t, err)
 
@@ -304,7 +309,7 @@ Started: 2026-01-22 10:00:00
 	time.Sleep(200 * time.Millisecond)
 
 	// verify session was discovered
-	session := sm.Get("delete-test")
+	session := sm.Get(sessionID)
 	require.NotNil(t, session, "session should be discovered initially")
 
 	// delete the file
@@ -314,7 +319,7 @@ Started: 2026-01-22 10:00:00
 	time.Sleep(200 * time.Millisecond)
 
 	// verify session was removed
-	session = sm.Get("delete-test")
+	session = sm.Get(sessionID)
 	assert.Nil(t, session, "session should be removed after file deletion")
 }
 

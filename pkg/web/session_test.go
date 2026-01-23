@@ -1,6 +1,7 @@
 package web
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -83,4 +84,174 @@ func TestSession_Close(t *testing.T) {
 
 	// buffer should be cleared
 	assert.Equal(t, 0, s.Buffer.Count())
+}
+
+func TestSession_StartTailing(t *testing.T) {
+	t.Run("starts tailing and feeds events", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := tmpDir + "/progress-test.txt"
+
+		// create progress file with header
+		content := `# Ralphex Progress Log
+Plan: test.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:30:00
+------------------------------------------------------------
+
+[26-01-22 10:30:01] Initial line
+`
+		require.NoError(t, os.WriteFile(progressFile, []byte(content), 0o600))
+
+		s := NewSession("test", progressFile)
+
+		// should not be tailing initially
+		assert.False(t, s.IsTailing())
+
+		// start tailing from beginning
+		err := s.StartTailing(true)
+		require.NoError(t, err)
+
+		// should be tailing now
+		assert.True(t, s.IsTailing())
+
+		// wait for tailer to read initial content
+		time.Sleep(200 * time.Millisecond)
+
+		// verify events were added to buffer
+		events := s.Buffer.All()
+		require.GreaterOrEqual(t, len(events), 1)
+
+		found := false
+		for _, e := range events {
+			if e.Text == "Initial line" {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "should have read 'Initial line' event")
+
+		s.Close()
+		assert.False(t, s.IsTailing())
+	})
+
+	t.Run("noop if already tailing", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := tmpDir + "/progress-test.txt"
+
+		content := `# Ralphex Progress Log
+Plan: test.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:30:00
+------------------------------------------------------------
+`
+		require.NoError(t, os.WriteFile(progressFile, []byte(content), 0o600))
+
+		s := NewSession("test", progressFile)
+		defer s.Close()
+
+		err := s.StartTailing(true)
+		require.NoError(t, err)
+
+		// second start should be no-op
+		err = s.StartTailing(true)
+		require.NoError(t, err)
+
+		assert.True(t, s.IsTailing())
+	})
+
+	t.Run("returns error for non-existent file", func(t *testing.T) {
+		s := NewSession("test", "/nonexistent/path.txt")
+
+		err := s.StartTailing(true)
+		require.Error(t, err)
+		assert.False(t, s.IsTailing())
+	})
+}
+
+func TestSession_IsTailing(t *testing.T) {
+	tmpDir := t.TempDir()
+	progressFile := tmpDir + "/progress-test.txt"
+
+	content := `# Ralphex Progress Log
+Plan: test.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:30:00
+------------------------------------------------------------
+`
+	require.NoError(t, os.WriteFile(progressFile, []byte(content), 0o600))
+
+	s := NewSession("test", progressFile)
+
+	// false before start
+	assert.False(t, s.IsTailing())
+
+	// true during tailing
+	require.NoError(t, s.StartTailing(true))
+	assert.True(t, s.IsTailing())
+
+	// false after stop
+	s.StopTailing()
+	time.Sleep(50 * time.Millisecond) // give goroutine time to stop
+	assert.False(t, s.IsTailing())
+}
+
+func TestSession_StopTailing(t *testing.T) {
+	t.Run("stops tailing cleanly", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := tmpDir + "/progress-test.txt"
+
+		content := `# Ralphex Progress Log
+Plan: test.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:30:00
+------------------------------------------------------------
+`
+		require.NoError(t, os.WriteFile(progressFile, []byte(content), 0o600))
+
+		s := NewSession("test", progressFile)
+
+		require.NoError(t, s.StartTailing(true))
+		assert.True(t, s.IsTailing())
+
+		s.StopTailing()
+		time.Sleep(50 * time.Millisecond)
+		assert.False(t, s.IsTailing())
+	})
+
+	t.Run("safe to call when not tailing", func(t *testing.T) {
+		s := NewSession("test", "/tmp/test.txt")
+
+		// should not panic
+		s.StopTailing()
+		assert.False(t, s.IsTailing())
+	})
+
+	t.Run("safe to call multiple times", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		progressFile := tmpDir + "/progress-test.txt"
+
+		content := `# Ralphex Progress Log
+Plan: test.md
+Branch: main
+Mode: full
+Started: 2026-01-22 10:30:00
+------------------------------------------------------------
+`
+		require.NoError(t, os.WriteFile(progressFile, []byte(content), 0o600))
+
+		s := NewSession("test", progressFile)
+
+		require.NoError(t, s.StartTailing(true))
+
+		// multiple stop calls should be safe
+		s.StopTailing()
+		s.StopTailing()
+		s.StopTailing()
+
+		assert.False(t, s.IsTailing())
+	})
 }

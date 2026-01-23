@@ -59,9 +59,9 @@ func (w *Watcher) Start(ctx context.Context) error {
 		}
 	}
 
-	// initial discovery
+	// initial discovery (recursive to find existing progress files in subdirectories)
 	for _, dir := range w.dirs {
-		if _, err := w.sm.Discover(dir); err != nil {
+		if _, err := w.sm.DiscoverRecursive(dir); err != nil {
 			log.Printf("[WARN] initial discovery failed for %s: %v", dir, err)
 		}
 	}
