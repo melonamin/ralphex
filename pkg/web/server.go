@@ -77,6 +77,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// register routes
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/api/plan", s.handlePlan)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
@@ -150,6 +151,22 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err := s.tmpl.Execute(w, data); err != nil {
 		http.Error(w, "template execution error", http.StatusInternalServerError)
 		return
+	}
+}
+
+// handlePing returns a simple OK response for health checks.
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = w.Write([]byte("pong"))
 	}
 }
 
