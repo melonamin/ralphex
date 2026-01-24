@@ -20,10 +20,11 @@ test:
 	rm coverage.out coverage_no_mocks.out
 
 lint:
-	golangci-lint run
+	golangci-lint run --max-issues-per-linter=0 --max-same-issues=0
 
 fmt:
-	~/.dot-files/claude/format.sh
+	gofmt -s -w $$(find . -type f -name "*.go" -not -path "./vendor/*" -not -path "./mocks/*" -not -path "**/mocks/*")
+	goimports -w $$(find . -type f -name "*.go" -not -path "./vendor/*" -not -path "./mocks/*" -not -path "**/mocks/*")
 
 race:
 	go test -race -timeout=60s ./...
@@ -31,9 +32,6 @@ race:
 version:
 	@echo "branch: $(BRANCH), hash: $(HASH), timestamp: $(TIMESTAMP)"
 	@echo "revision: $(REV)"
-
-install: build
-	sudo cp .bin/ralphex /usr/local/bin/ralphex
 
 e2e-prep: build
 	@./scripts/prep-toy-test.sh
@@ -72,4 +70,4 @@ prep_site:
 	grep -v -E 'badge|coveralls|goreportcard' site/docs/index.md > site/docs/index.md.tmp && mv site/docs/index.md.tmp site/docs/index.md
 	cd site && pip install -r requirements.txt && mkdocs build
 
-.PHONY: all build test lint fmt race version install e2e-prep e2e-review e2e-codex prep_site
+.PHONY: all build test lint fmt race version e2e-prep e2e-review e2e-codex prep_site
