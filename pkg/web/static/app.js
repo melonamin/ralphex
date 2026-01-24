@@ -24,11 +24,14 @@
     const exportBtn = document.getElementById('export-btn');
     const expandAllBtn = document.getElementById('expand-all');
     const collapseAllBtn = document.getElementById('collapse-all');
+    const helpOverlay = document.getElementById('help-overlay');
+    const helpCloseBtn = document.getElementById('help-close');
 
     // session sidebar elements
     const sessionSidebar = document.getElementById('session-sidebar');
     const sessionList = document.getElementById('session-list');
     const sidebarToggle = document.getElementById('sidebar-toggle');
+    const viewToggle = document.getElementById('view-toggle');
     const mainWrapper = document.getElementById('main-wrapper');
     const planNameEl = document.getElementById('plan-name');
     const branchNameEl = document.getElementById('branch-name');
@@ -40,6 +43,20 @@
     // session polling interval
     var SESSION_POLL_INTERVAL_MS = 5000;
 
+    // view mode constants
+    var VIEW_MODE = {
+        RECENT: 'recent',
+        GROUPED: 'grouped'
+    };
+
+    // normalize view mode from localStorage (handles corrupted/invalid values)
+    function normalizeViewMode(saved) {
+        if (saved === VIEW_MODE.GROUPED || saved === VIEW_MODE.RECENT) {
+            return saved;
+        }
+        return VIEW_MODE.RECENT;
+    }
+
     // application state - encapsulated for easier testing and debugging
     var state = {
         // UI state
@@ -50,6 +67,7 @@
         searchTimeout: null,
         planCollapsed: localStorage.getItem('planCollapsed') === 'true',
         sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',
+        sessionViewMode: normalizeViewMode(localStorage.getItem('sessionViewMode')),
         planData: null,
 
         // session state
@@ -65,6 +83,11 @@
         sectionCounter: 0, // monotonically increasing counter for unique section IDs
         isTerminalState: false, // true when COMPLETED/FAILED signal received
         seenSections: {}, // track seen sections to avoid duplicates
+        currentTaskNum: null, // current active task number from task_start events
+        focusedSectionIndex: -1, // for j/k navigation
+        focusedSectionElement: null, // direct reference to focused section for O(1) unfocus
+        hasRunTerminalCleanup: false, // guard for terminal cleanup to prevent double-calls
+        expandedSections: {}, // tracks user-expanded sections per session {sessionId: Set of sectionIds}
 
         // SSE connection state
         reconnectDelay: SSE_INITIAL_RECONNECT_MS,
@@ -81,8 +104,9 @@
     // initialize plan panel state
     if (state.planCollapsed) {
         mainContainer.classList.add('plan-collapsed');
-        planToggle.textContent = '▶';
     }
+    // always set icon explicitly based on state (don't rely on HTML default)
+    planToggle.textContent = state.planCollapsed ? '◀' : '▶';
 
     // initialize sidebar state
     if (state.sidebarCollapsed) {
@@ -90,8 +114,17 @@
         sidebarToggle.textContent = '▶';
     }
 
+    // initialize view toggle state
+    updateViewToggleButton();
+
+    // load saved section expansion state
+    loadExpandedSections();
+
     // batch size for event queue processing
     var BATCH_SIZE = 100;
+
+    // max sessions to track expansion state for (prevents localStorage bloat)
+    var MAX_PERSISTED_SESSIONS = 20;
 
     // process event queue in batches using requestAnimationFrame
     // this prevents layout thrashing when loading sessions with many events
@@ -112,6 +145,11 @@
             if (state.eventQueue.length > 0) {
                 requestAnimationFrame(processBatch);
             } else {
+                // for completed sessions, clear active task styling
+                if (state.isTerminalState) {
+                    if (!state.hasRunTerminalCleanup) { state.hasRunTerminalCleanup = true; clearActiveTaskStyling(); }
+                }
+
                 state.autoScroll = savedAutoScroll;
                 if (shouldRestoreScroll) {
                     if (!restoreScrollPosition(state.currentSessionId)) {
@@ -223,6 +261,60 @@
         return text.toLowerCase().includes(term.toLowerCase());
     }
 
+    // regex pattern for task iteration sections (hoisted for performance)
+    var TASK_ITERATION_PATTERN = /^task iteration \d+$/i;
+
+    // check if section text is a task iteration pattern
+    function isTaskIteration(sectionText) {
+        if (!sectionText) return false;
+        return TASK_ITERATION_PATTERN.test(sectionText);
+    }
+
+    // look up task title by number from plan data
+    function getTaskTitle(taskNum) {
+        if (!state.planData || !state.planData.tasks) return null;
+        for (var i = 0; i < state.planData.tasks.length; i++) {
+            if (state.planData.tasks[i].number === taskNum) {
+                return state.planData.tasks[i].title;
+            }
+        }
+        return null;
+    }
+
+    // format section title for task iterations using current active task
+    // stores task number in data attribute for later refresh if plan loads after events
+    function formatSectionTitle(sectionText, sectionElement) {
+        if (isTaskIteration(sectionText) && state.currentTaskNum) {
+            // store the task number for later refresh
+            if (sectionElement) {
+                sectionElement.dataset.taskNum = state.currentTaskNum;
+            }
+            var title = getTaskTitle(state.currentTaskNum);
+            if (title) {
+                return 'Task ' + state.currentTaskNum + ': ' + title;
+            }
+        }
+        return sectionText;
+    }
+
+    // update all section headers with task titles after plan data loads
+    // this handles completed sessions where events arrive before plan data
+    function refreshSectionTitles() {
+        if (!state.planData || !state.planData.tasks) return;
+        var sections = output.querySelectorAll('.section-header[data-task-num]');
+        sections.forEach(function(section) {
+            var titleEl = section.querySelector('.section-title');
+            if (!titleEl) return;
+            var taskNum = parseInt(section.dataset.taskNum, 10);
+            if (taskNum) {
+                var title = getTaskTitle(taskNum);
+                if (title) {
+                    titleEl.textContent = 'Task ' + taskNum + ': ' + title;
+                }
+            }
+        });
+    }
+
     // create output line element
     function createOutputLine(event) {
         const line = document.createElement('div');
@@ -257,7 +349,14 @@
 
     // create section header (collapsible details element)
     // uses monotonically increasing counter for unique section IDs to avoid collisions on duplicate titles
+    // sections start collapsed; only current section in live sessions is expanded
     function createSectionHeader(event) {
+        // collapse previous section (it's now "completed")
+        if (state.currentSection) {
+            state.currentSection.open = false;
+            state.currentSection.classList.remove('section-focused');
+        }
+
         state.sectionCounter++;
         var sectionId = 'section-' + state.sectionCounter;
 
@@ -265,7 +364,11 @@
         details.className = 'section-header';
         details.dataset.phase = event.phase;
         details.dataset.sectionId = sectionId;
-        details.open = true;
+
+        // check if user explicitly expanded this section, or if it's a live session's current section
+        var isLive = isLiveSession();
+        var userExpanded = isSectionExpanded(sectionId);
+        details.open = userExpanded || isLive; // live sessions: current section expanded
 
         const summary = document.createElement('summary');
 
@@ -275,7 +378,7 @@
 
         const title = document.createElement('span');
         title.className = 'section-title';
-        title.textContent = event.section || event.text;
+        title.textContent = formatSectionTitle(event.section || event.text, details);
 
         const duration = document.createElement('span');
         duration.className = 'section-duration';
@@ -284,6 +387,13 @@
         summary.appendChild(phaseLabel);
         summary.appendChild(title);
         summary.appendChild(duration);
+
+        // track user toggle on click (setTimeout lets browser update details.open first)
+        summary.addEventListener('click', function(e) {
+            setTimeout(function() {
+                trackSectionToggle(sectionId, details.open);
+            }, 0);
+        });
 
         const content = document.createElement('div');
         content.className = 'section-content';
@@ -300,6 +410,72 @@
         state.sectionStartTimes[sectionId] = new Date(event.timestamp).getTime();
 
         return details;
+    }
+
+    // check if a section was explicitly expanded by user
+    function isSectionExpanded(sectionId) {
+        if (!state.currentSessionId) return false;
+        var expanded = state.expandedSections[state.currentSessionId];
+        return expanded && expanded[sectionId];
+    }
+
+    // track user toggle of section expand/collapse
+    function trackSectionToggle(sectionId, isOpen) {
+        if (!state.currentSessionId) return;
+
+        if (!state.expandedSections[state.currentSessionId]) {
+            state.expandedSections[state.currentSessionId] = {};
+        }
+
+        if (isOpen) {
+            state.expandedSections[state.currentSessionId][sectionId] = true;
+        } else {
+            delete state.expandedSections[state.currentSessionId][sectionId];
+        }
+
+        // persist to localStorage (limit to recent sessions to avoid bloat)
+        saveExpandedSections();
+    }
+
+    // debounce timer for localStorage writes
+    var saveExpandedDebounce = null;
+
+    // save expanded sections to localStorage (debounced to avoid thrashing)
+    function saveExpandedSections() {
+        if (saveExpandedDebounce) clearTimeout(saveExpandedDebounce);
+        saveExpandedDebounce = setTimeout(function() {
+            // only keep last N sessions to avoid localStorage bloat
+            var keys = Object.keys(state.expandedSections);
+            if (keys.length > MAX_PERSISTED_SESSIONS) {
+                var toRemove = keys.slice(0, keys.length - MAX_PERSISTED_SESSIONS);
+                toRemove.forEach(function(k) { delete state.expandedSections[k]; });
+            }
+            localStorage.setItem('expandedSections', JSON.stringify(state.expandedSections));
+        }, 500);
+    }
+
+    // load expanded sections from localStorage
+    function loadExpandedSections() {
+        try {
+            var saved = localStorage.getItem('expandedSections');
+            if (saved) {
+                var parsed = JSON.parse(saved);
+                // validate parsed data is a plain object
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    // use null-prototype object to prevent prototype pollution
+                    state.expandedSections = Object.assign(Object.create(null), parsed);
+                    // remove any prototype pollution keys
+                    delete state.expandedSections.__proto__;
+                    delete state.expandedSections.constructor;
+                    delete state.expandedSections.prototype;
+                } else {
+                    state.expandedSections = {};
+                }
+            }
+        } catch (e) {
+            console.error('[localStorage] Failed to parse expandedSections:', e);
+            state.expandedSections = {};
+        }
     }
 
     // update section duration display - uses direct selector for O(1) lookup
@@ -344,26 +520,19 @@
         statusBadge.className = 'status-badge';
 
         if (event.type === 'signal') {
-            if (event.signal === 'COMPLETED' || event.signal === 'REVIEW_DONE' || event.signal === 'CODEX_REVIEW_DONE') {
-                statusBadge.textContent = 'COMPLETED';
-                statusBadge.classList.add('completed');
+            var isSuccess = event.signal === 'COMPLETED' || event.signal === 'REVIEW_DONE' || event.signal === 'CODEX_REVIEW_DONE';
+            var isFailed = event.signal === 'FAILED';
+
+            if (isSuccess || isFailed) {
+                statusBadge.textContent = isSuccess ? 'COMPLETED' : 'FAILED';
+                statusBadge.classList.add(isSuccess ? 'completed' : 'failed');
                 state.isTerminalState = true;
-                // update timers one final time before stopping
                 updateTimers();
                 if (state.elapsedTimerInterval) {
                     clearInterval(state.elapsedTimerInterval);
                     state.elapsedTimerInterval = null;
                 }
-            } else if (event.signal === 'FAILED') {
-                statusBadge.textContent = 'FAILED';
-                statusBadge.classList.add('failed');
-                state.isTerminalState = true;
-                // update timers one final time before stopping
-                updateTimers();
-                if (state.elapsedTimerInterval) {
-                    clearInterval(state.elapsedTimerInterval);
-                    state.elapsedTimerInterval = null;
-                }
+                if (!state.hasRunTerminalCleanup) { state.hasRunTerminalCleanup = true; clearActiveTaskStyling(); }
             }
             return;
         }
@@ -423,13 +592,14 @@
         state.elapsedTimerInterval = setInterval(updateTimers, 1000);
     }
 
-    // handle task start event
+    // handle task boundary events
     function handleTaskStart(event) {
+        state.currentTaskNum = event.task_num;
         updatePlanTaskStatus(event.task_num, 'active');
     }
 
-    // handle task end event
     function handleTaskEnd(event) {
+        state.currentTaskNum = null;
         updatePlanTaskStatus(event.task_num, 'done');
     }
 
@@ -607,6 +777,12 @@
 
     // apply all current filters (phase + search)
     function applyFilters() {
+        // reset focused section when filters change
+        state.focusedSectionIndex = -1;
+        if (state.focusedSectionElement) {
+            state.focusedSectionElement.classList.remove('section-focused');
+            state.focusedSectionElement = null;
+        }
         var sections = output.querySelectorAll('.section-header');
         sections.forEach(function(section) {
             var phase = section.dataset.phase;
@@ -696,10 +872,10 @@
 
         if (state.planCollapsed) {
             mainContainer.classList.add('plan-collapsed');
-            planToggle.textContent = '▶';
+            planToggle.textContent = '◀';
         } else {
             mainContainer.classList.remove('plan-collapsed');
-            planToggle.textContent = '◀';
+            planToggle.textContent = '▶';
         }
     }
 
@@ -716,6 +892,98 @@
             sidebarToggle.textContent = '◀';
         }
     }
+
+    // toggle session view mode (recent vs grouped by project)
+    function toggleSessionViewMode() {
+        setSessionViewMode(state.sessionViewMode === VIEW_MODE.RECENT ? VIEW_MODE.GROUPED : VIEW_MODE.RECENT);
+    }
+
+    // set session view mode to specific value
+    function setSessionViewMode(mode) {
+        if (state.sessionViewMode === mode) return;
+        state.sessionViewMode = mode;
+        localStorage.setItem('sessionViewMode', state.sessionViewMode);
+        updateViewToggleButton();
+        renderSessionList(state.sessions);
+    }
+
+    // update view toggle button appearance
+    function updateViewToggleButton() {
+        if (!viewToggle) return;
+        var icon = viewToggle.querySelector('.view-icon');
+        if (state.sessionViewMode === VIEW_MODE.GROUPED) {
+            viewToggle.classList.add('grouped');
+            viewToggle.title = 'Grouped by project (t for recent)';
+            if (icon) icon.textContent = 'G';
+        } else {
+            viewToggle.classList.remove('grouped');
+            viewToggle.title = 'Sorted by time (g to group)';
+            if (icon) icon.textContent = 'T';
+        }
+    }
+
+    // get visible sections (respects phase filter)
+    function getVisibleSections() {
+        var all = output.querySelectorAll('.section-header');
+        var visible = [];
+        all.forEach(function(section) {
+            if (!section.classList.contains('hidden')) {
+                visible.push(section);
+            }
+        });
+        return visible;
+    }
+
+    // navigate to adjacent section (direction: 1 for next, -1 for previous)
+    function navigateSection(direction) {
+        var sections = getVisibleSections();
+        if (sections.length === 0) return;
+
+        state.focusedSectionIndex += direction;
+        state.focusedSectionIndex = Math.max(0, Math.min(state.focusedSectionIndex, sections.length - 1));
+
+        focusSection(sections[state.focusedSectionIndex]);
+    }
+
+    // focus a section: scroll into view and highlight (does NOT change expand state)
+    function focusSection(section) {
+        if (!section) return;
+
+        // remove focus from previously focused section (O(1) instead of querying all)
+        if (state.focusedSectionElement) {
+            state.focusedSectionElement.classList.remove('section-focused');
+        }
+
+        // focus this section and track it
+        section.classList.add('section-focused');
+        state.focusedSectionElement = section;
+
+        // scroll into view with some padding
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // disable auto-scroll when navigating manually
+        state.autoScroll = false;
+    }
+
+    // toggle expand/collapse of currently focused section
+    function toggleFocusedSection() {
+        var sections = getVisibleSections();
+        if (state.focusedSectionIndex < 0 || state.focusedSectionIndex >= sections.length) return;
+
+        var section = sections[state.focusedSectionIndex];
+        if (section) {
+            section.open = !section.open;
+            var sectionId = section.dataset.sectionId;
+            if (sectionId) {
+                trackSectionToggle(sectionId, section.open);
+            }
+        }
+    }
+
+    // help modal controls
+    function showHelp() { if (helpOverlay) helpOverlay.classList.add('visible'); }
+    function hideHelp() { if (helpOverlay) helpOverlay.classList.remove('visible'); }
+    function isHelpVisible() { return helpOverlay && helpOverlay.classList.contains('visible'); }
 
     // fetch sessions from API
     function fetchSessions() {
@@ -809,65 +1077,153 @@
             return;
         }
 
-        // sessions are already sorted by recency from API
+        if (state.sessionViewMode === VIEW_MODE.GROUPED) {
+            renderSessionsGrouped(sessions);
+        } else {
+            renderSessionsRecent(sessions);
+        }
+    }
+
+    // render sessions as flat list sorted by recency
+    function renderSessionsRecent(sessions) {
         sessions.forEach(function(session) {
-            var item = document.createElement('div');
-            item.className = 'session-item';
-            item.dataset.sessionId = session.id;
+            sessionList.appendChild(createSessionItem(session));
+        });
+    }
 
-            if (session.id === state.currentSessionId) {
-                item.classList.add('selected');
+    // render sessions grouped by project directory
+    function renderSessionsGrouped(sessions) {
+        // group sessions by directory
+        var groups = {};
+        sessions.forEach(function(session) {
+            var dir = session.dir || 'Unknown';
+            if (!groups[dir]) {
+                groups[dir] = [];
             }
+            groups[dir].push(session);
+        });
 
-            // status indicator
-            var indicator = document.createElement('span');
-            indicator.className = 'session-indicator';
-            if (session.state === 'active') {
-                indicator.classList.add('active');
-                indicator.title = 'Active session';
-            } else {
-                indicator.classList.add('completed');
-                indicator.title = 'Completed session';
-            }
+        // sort groups by most recent session in each group
+        var sortedDirs = Object.keys(groups).sort(function(a, b) {
+            var aLatest = new Date(groups[a][0].lastModified).getTime();
+            var bLatest = new Date(groups[b][0].lastModified).getTime();
+            return bLatest - aLatest;
+        });
 
-            // session info container
-            var info = document.createElement('div');
-            info.className = 'session-info';
+        // render each group
+        sortedDirs.forEach(function(dir) {
+            var group = document.createElement('div');
+            group.className = 'project-group';
 
-            // plan name
-            var name = document.createElement('div');
-            name.className = 'session-name';
-            name.textContent = extractPlanName(session.planPath);
+            // group header
+            var header = document.createElement('div');
+            header.className = 'project-group-header';
 
-            // branch and time
-            var meta = document.createElement('div');
-            meta.className = 'session-meta';
+            var icon = document.createElement('span');
+            icon.className = 'group-icon';
+            icon.textContent = '▼';
 
-            if (session.branch) {
-                var branchSpan = document.createElement('span');
-                branchSpan.className = 'session-branch';
-                branchSpan.textContent = session.branch;
-                meta.appendChild(branchSpan);
-            }
+            var name = document.createElement('span');
+            name.className = 'group-name';
+            name.textContent = extractProjectName(dir);
+            name.title = dir;
 
-            var timeSpan = document.createElement('span');
-            timeSpan.className = 'session-time';
-            timeSpan.textContent = formatRelativeTime(session.lastModified);
-            meta.appendChild(timeSpan);
+            var count = document.createElement('span');
+            count.className = 'group-count';
+            count.textContent = '(' + groups[dir].length + ')';
 
-            info.appendChild(name);
-            info.appendChild(meta);
+            header.appendChild(icon);
+            header.appendChild(name);
+            header.appendChild(count);
 
-            item.appendChild(indicator);
-            item.appendChild(info);
-
-            // click handler
-            item.addEventListener('click', function() {
-                selectSession(session.id);
+            // toggle group collapse
+            header.addEventListener('click', function() {
+                group.classList.toggle('collapsed');
             });
 
-            sessionList.appendChild(item);
+            // sessions container
+            var sessionsContainer = document.createElement('div');
+            sessionsContainer.className = 'project-group-sessions';
+
+            groups[dir].forEach(function(session) {
+                sessionsContainer.appendChild(createSessionItem(session));
+            });
+
+            group.appendChild(header);
+            group.appendChild(sessionsContainer);
+            sessionList.appendChild(group);
         });
+    }
+
+    // extract short project name from full path
+    function extractProjectName(dir) {
+        if (!dir) return 'Unknown';
+        var parts = dir.split(/[\\/]/);
+        // return last non-empty part
+        for (var i = parts.length - 1; i >= 0; i--) {
+            if (parts[i]) return parts[i];
+        }
+        return dir;
+    }
+
+    // create a session item element
+    function createSessionItem(session) {
+        var item = document.createElement('div');
+        item.className = 'session-item';
+        item.dataset.sessionId = session.id;
+
+        if (session.id === state.currentSessionId) {
+            item.classList.add('selected');
+        }
+
+        // status indicator
+        var indicator = document.createElement('span');
+        indicator.className = 'session-indicator';
+        if (session.state === 'active') {
+            indicator.classList.add('active');
+            indicator.title = 'Active session';
+        } else {
+            indicator.classList.add('completed');
+            indicator.title = 'Completed session';
+        }
+
+        // session info container
+        var info = document.createElement('div');
+        info.className = 'session-info';
+
+        // plan name
+        var name = document.createElement('div');
+        name.className = 'session-name';
+        name.textContent = extractPlanName(session.planPath);
+
+        // branch and time
+        var meta = document.createElement('div');
+        meta.className = 'session-meta';
+
+        if (session.branch) {
+            var branchSpan = document.createElement('span');
+            branchSpan.className = 'session-branch';
+            branchSpan.textContent = session.branch;
+            meta.appendChild(branchSpan);
+        }
+
+        var timeSpan = document.createElement('span');
+        timeSpan.className = 'session-time';
+        timeSpan.textContent = formatRelativeTime(session.lastModified);
+        meta.appendChild(timeSpan);
+
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        item.appendChild(indicator);
+        item.appendChild(info);
+
+        // click handler
+        item.addEventListener('click', function() {
+            selectSession(session.id);
+        });
+
+        return item;
     }
 
     // select a session and switch to it
@@ -995,9 +1351,13 @@
         state.executionStartTime = null;
         state.lastEventTimestamp = null;
         state.isTerminalState = false;
+        state.hasRunTerminalCleanup = false;
         state.seenSections = {};
+        state.currentTaskNum = null;
         state.eventQueue = [];
         state.isProcessingQueue = false;
+        state.focusedSectionIndex = -1;
+        state.focusedSectionElement = null;
         if (state.elapsedTimerInterval) {
             clearInterval(state.elapsedTimerInterval);
             state.elapsedTimerInterval = null;
@@ -1105,6 +1465,9 @@
 
             planContent.appendChild(taskEl);
         });
+
+        // update any section headers that were rendered before plan data loaded
+        refreshSectionTitles();
     }
 
     // event listeners
@@ -1118,20 +1481,38 @@
 
     planToggle.addEventListener('click', togglePlanPanel);
     sidebarToggle.addEventListener('click', toggleSessionSidebar);
+    if (viewToggle) {
+        viewToggle.addEventListener('click', toggleSessionViewMode);
+    }
 
     // keyboard shortcuts
     document.addEventListener('keydown', function(e) {
+        // '?' shows help (unless in input)
+        if (e.key === '?' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            showHelp();
+            return;
+        }
+
+        // Escape closes help, or clears search
+        if (e.key === 'Escape') {
+            if (isHelpVisible()) {
+                hideHelp();
+                return;
+            }
+            searchInput.value = '';
+            searchInput.blur();
+            handleSearch();
+            return;
+        }
+
+        // ignore other shortcuts when help is visible
+        if (isHelpVisible()) return;
+
         // '/' focuses search (unless already in input)
         if (e.key === '/' && document.activeElement !== searchInput) {
             e.preventDefault();
             searchInput.focus();
-        }
-
-        // Escape clears search
-        if (e.key === 'Escape') {
-            searchInput.value = '';
-            searchInput.blur();
-            handleSearch();
         }
 
         // 'P' toggles plan panel (unless in input)
@@ -1144,6 +1525,49 @@
         if ((e.key === 's' || e.key === 'S') && document.activeElement !== searchInput) {
             e.preventDefault();
             toggleSessionSidebar();
+        }
+
+        // 't' switches to time-sorted view (unless in input)
+        if (e.key === 't' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            setSessionViewMode(VIEW_MODE.RECENT);
+        }
+
+        // 'g' switches to grouped-by-project view (unless in input)
+        if (e.key === 'g' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            setSessionViewMode(VIEW_MODE.GROUPED);
+        }
+
+        // 'j'/'k' navigate between sections (unless in input)
+        if (e.key === 'j' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            navigateSection(1);
+        }
+
+        if (e.key === 'k' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            navigateSection(-1);
+        }
+
+        // 'e' expands all sections (unless in input)
+        if (e.key === 'e' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            expandAllSections();
+        }
+
+        // 'c' collapses all sections (unless in input)
+        if (e.key === 'c' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            collapseAllSections();
+        }
+
+        // Space or Enter toggles focused section expand/collapse (unless in input)
+        if ((e.key === ' ' || e.key === 'Enter') && document.activeElement !== searchInput) {
+            if (state.focusedSectionIndex >= 0) {
+                e.preventDefault();
+                toggleFocusedSection();
+            }
         }
     });
 
@@ -1221,9 +1645,9 @@
             '#search{flex:1;max-width:400px;font-family:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);outline:none}\n' +
             '#search:focus{border-color:var(--phase-review)}\n' +
             '.search-hint{font-size:11px;color:var(--text-muted)}\n' +
-            '.main-container{flex:1;display:grid;grid-template-columns:300px 1fr;overflow:hidden}\n' +
-            '.main-container.plan-collapsed{grid-template-columns:0 1fr}\n' +
-            '.plan-panel{background:var(--bg-secondary);border-right:1px solid var(--border-color);display:flex;flex-direction:column;overflow:hidden}\n' +
+            '.main-container{flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden}\n' +
+            '.main-container.plan-collapsed{grid-template-columns:1fr 0}\n' +
+            '.plan-panel{background:var(--bg-secondary);border-left:1px solid var(--border-color);display:flex;flex-direction:column;overflow:hidden}\n' +
             '.main-container.plan-collapsed .plan-panel{display:none}\n' +
             '.plan-panel-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border-color);flex-shrink:0}\n' +
             '.plan-panel-title{font-weight:600;color:var(--text-primary)}\n' +
@@ -1252,7 +1676,7 @@
             '.section-header[data-phase="review"] .section-phase{color:var(--phase-review);border:1px solid var(--phase-review)}\n' +
             '.section-header[data-phase="codex"] .section-phase{color:var(--phase-codex);border:1px solid var(--phase-codex)}\n' +
             '.section-duration{margin-left:auto;font-size:11px;font-weight:normal;color:var(--text-secondary)}\n' +
-            '.section-content{padding:8px 0 8px 20px;border-left:2px solid var(--border-color);margin-left:6px}\n' +
+            '.section-content{padding:8px 0 8px 20px;border-left:2px solid var(--border-color);margin-left:6px;width:100%;box-sizing:border-box}\n' +
             '.highlight{background:rgba(210,169,34,0.3);color:var(--color-warn);border-radius:2px;padding:0 2px}\n' +
             '.plan-task{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}\n' +
             '.plan-task:last-child{border-bottom:none}\n' +
@@ -1271,7 +1695,7 @@
     // it's a simplified version of the main app logic - update if core filtering changes.
     // the export feature creates offline-viewable HTML files that don't require serving.
     function getExportJs() {
-        return '(function(){var output=document.getElementById("output");var searchInput=document.getElementById("search");var phaseTabs=document.querySelectorAll(".phase-tab");var mainContainer=document.querySelector(".main-container");var planToggle=document.getElementById("plan-toggle");var expandAllBtn=document.getElementById("expand-all");var collapseAllBtn=document.getElementById("collapse-all");var currentPhase="all";var searchTerm="";function escapeRegex(s){return s.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}function setHighlight(el,text,term){el.textContent="";if(!term){el.textContent=text;return}try{var re=new RegExp("("+escapeRegex(term)+")","gi");var parts=text.split(re);parts.forEach(function(p){if(p.toLowerCase()===term.toLowerCase()){var h=document.createElement("span");h.className="highlight";h.textContent=p;el.appendChild(h)}else if(p){el.appendChild(document.createTextNode(p))}})}catch(e){el.textContent=text}}function applyFilters(){var sections=output.querySelectorAll(".section-header");sections.forEach(function(sec){var ph=sec.dataset.phase;var phMatch=currentPhase==="all"||ph===currentPhase;var hasSearch=!searchTerm;if(searchTerm){sec.querySelectorAll(".output-line").forEach(function(ln){var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;if(t.toLowerCase().includes(searchTerm.toLowerCase()))hasSearch=true})}if(phMatch&&hasSearch){sec.classList.remove("hidden")}else{sec.classList.add("hidden")}});output.querySelectorAll(".output-line").forEach(function(ln){var ph=ln.dataset.phase;var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;var phMatch=currentPhase==="all"||ph===currentPhase;var sMatch=!searchTerm||t.toLowerCase().includes(searchTerm.toLowerCase());if(phMatch&&sMatch){ln.classList.remove("hidden")}else{ln.classList.add("hidden")}setHighlight(c,t,searchTerm)})}phaseTabs.forEach(function(tab){tab.addEventListener("click",function(){currentPhase=tab.dataset.phase;phaseTabs.forEach(function(t){t.classList.toggle("active",t.dataset.phase===currentPhase)});applyFilters()})});searchInput.addEventListener("input",function(){searchTerm=searchInput.value.trim();applyFilters()});planToggle.addEventListener("click",function(){mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"▶":"◀"});expandAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=true})});collapseAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=false})});document.addEventListener("keydown",function(e){if(e.key==="/"&&document.activeElement!==searchInput){e.preventDefault();searchInput.focus()}if(e.key==="Escape"){searchInput.value="";searchTerm="";searchInput.blur();applyFilters()}if((e.key==="p"||e.key==="P")&&document.activeElement!==searchInput){e.preventDefault();mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"▶":"◀"}})})();';
+        return '(function(){var output=document.getElementById("output");var searchInput=document.getElementById("search");var phaseTabs=document.querySelectorAll(".phase-tab");var mainContainer=document.querySelector(".main-container");var planToggle=document.getElementById("plan-toggle");var expandAllBtn=document.getElementById("expand-all");var collapseAllBtn=document.getElementById("collapse-all");var currentPhase="all";var searchTerm="";function escapeRegex(s){return s.replace(/[.*+?^${}()|[\\]\\\\]/g,"\\\\$&")}function setHighlight(el,text,term){el.textContent="";if(!term){el.textContent=text;return}try{var re=new RegExp("("+escapeRegex(term)+")","gi");var parts=text.split(re);parts.forEach(function(p){if(p.toLowerCase()===term.toLowerCase()){var h=document.createElement("span");h.className="highlight";h.textContent=p;el.appendChild(h)}else if(p){el.appendChild(document.createTextNode(p))}})}catch(e){el.textContent=text}}function applyFilters(){var sections=output.querySelectorAll(".section-header");sections.forEach(function(sec){var ph=sec.dataset.phase;var phMatch=currentPhase==="all"||ph===currentPhase;var hasSearch=!searchTerm;if(searchTerm){sec.querySelectorAll(".output-line").forEach(function(ln){var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;if(t.toLowerCase().includes(searchTerm.toLowerCase()))hasSearch=true})}if(phMatch&&hasSearch){sec.classList.remove("hidden")}else{sec.classList.add("hidden")}});output.querySelectorAll(".output-line").forEach(function(ln){var ph=ln.dataset.phase;var c=ln.querySelector(".content");var t=c.dataset.originalText||c.textContent;var phMatch=currentPhase==="all"||ph===currentPhase;var sMatch=!searchTerm||t.toLowerCase().includes(searchTerm.toLowerCase());if(phMatch&&sMatch){ln.classList.remove("hidden")}else{ln.classList.add("hidden")}setHighlight(c,t,searchTerm)})}phaseTabs.forEach(function(tab){tab.addEventListener("click",function(){currentPhase=tab.dataset.phase;phaseTabs.forEach(function(t){t.classList.toggle("active",t.dataset.phase===currentPhase)});applyFilters()})});searchInput.addEventListener("input",function(){searchTerm=searchInput.value.trim();applyFilters()});planToggle.addEventListener("click",function(){mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"◀":"▶"});expandAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=true})});collapseAllBtn.addEventListener("click",function(){output.querySelectorAll(".section-header").forEach(function(s){s.open=false})});document.addEventListener("keydown",function(e){if(e.key==="/"&&document.activeElement!==searchInput){e.preventDefault();searchInput.focus()}if(e.key==="Escape"){searchInput.value="";searchTerm="";searchInput.blur();applyFilters()}if((e.key==="p"||e.key==="P")&&document.activeElement!==searchInput){e.preventDefault();mainContainer.classList.toggle("plan-collapsed");planToggle.textContent=mainContainer.classList.contains("plan-collapsed")?"◀":"▶"}})})();';
     }
 
     // collect session data for export
@@ -1345,16 +1769,17 @@
     // build export HTML main content section
     function buildExportMain(clones) {
         return '<div class="main-container">\n' +
+            '<main class="output-panel">\n' +
+            '<div id="output">\n' + clones.output.innerHTML + '\n</div>\n' +
+            '</main>\n' +
             '<aside class="plan-panel">\n' +
             '<div class="plan-panel-header">\n' +
             '<span class="plan-panel-title">Plan</span>\n' +
-            '<button class="plan-toggle" id="plan-toggle">◀</button>\n' +
+            '<button class="plan-toggle" id="plan-toggle">▶</button>\n' +
             '</div>\n' +
             '<div class="plan-content">\n' + clones.plan.innerHTML + '\n</div>\n' +
             '</aside>\n' +
-            '<main class="output-panel">\n' +
-            '<div id="output">\n' + clones.output.innerHTML + '\n</div>\n' +
-            '</main>\n</div>\n' +
+            '</div>\n' +
             '<script>\n' + getExportJs() + '\n<\/script>\n' +
             '</body>\n</html>';
     }
@@ -1399,21 +1824,66 @@
 
     exportBtn.addEventListener('click', exportSession);
 
-    // expand/collapse all sections
+    // expand/collapse all sections (user-initiated, so track preferences)
     function expandAllSections() {
         output.querySelectorAll('.section-header').forEach(function(section) {
             section.open = true;
+            var sectionId = section.dataset.sectionId;
+            if (sectionId) {
+                trackSectionToggle(sectionId, true);
+            }
         });
     }
 
     function collapseAllSections() {
         output.querySelectorAll('.section-header').forEach(function(section) {
             section.open = false;
+            var sectionId = section.dataset.sectionId;
+            if (sectionId) {
+                trackSectionToggle(sectionId, false);
+            }
+        });
+    }
+
+    // clear active task styling (used when session completes)
+    function clearActiveTaskStyling() {
+        var activeTasks = planContent.querySelectorAll('.plan-task.active');
+        activeTasks.forEach(function(task) {
+            task.classList.remove('active');
+            var statusEl = task.querySelector('.plan-task-status');
+            if (statusEl) {
+                statusEl.classList.remove('active');
+                // if all checkboxes are checked, mark as done
+                var unchecked = task.querySelectorAll('.plan-checkbox:not(.checked)');
+                if (unchecked.length === 0) {
+                    statusEl.classList.add('done');
+                    statusEl.textContent = '✓';
+                }
+            }
         });
     }
 
     expandAllBtn.addEventListener('click', expandAllSections);
     collapseAllBtn.addEventListener('click', collapseAllSections);
+    // help modal close handlers (with null checks for SSR/test environments)
+    if (helpCloseBtn) {
+        helpCloseBtn.addEventListener('click', hideHelp);
+    }
+    if (helpOverlay) {
+        helpOverlay.addEventListener('click', function(e) {
+            if (e.target === helpOverlay) {
+                hideHelp();
+            }
+        });
+    }
+
+
+
+
+
+
+
+
 
     // start
     fetchSessions();

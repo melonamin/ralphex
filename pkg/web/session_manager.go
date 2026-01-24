@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"hash/fnv"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -408,26 +410,17 @@ func ParseProgressHeader(path string) (SessionMetadata, error) {
 			break
 		}
 
-		// parse key-value pairs using CutPrefix for efficiency
-		switch {
-		case strings.HasPrefix(line, "Plan: "):
-			if val, found := strings.CutPrefix(line, "Plan: "); found {
-				meta.PlanPath = val
-			}
-		case strings.HasPrefix(line, "Branch: "):
-			if val, found := strings.CutPrefix(line, "Branch: "); found {
-				meta.Branch = val
-			}
-		case strings.HasPrefix(line, "Mode: "):
-			if val, found := strings.CutPrefix(line, "Mode: "); found {
-				meta.Mode = val
-			}
-		case strings.HasPrefix(line, "Started: "):
-			if val, found := strings.CutPrefix(line, "Started: "); found {
-				t, err := time.Parse("2006-01-02 15:04:05", val)
-				if err == nil {
-					meta.StartTime = t
-				}
+		// parse key-value pairs
+		if val, found := strings.CutPrefix(line, "Plan: "); found {
+			meta.PlanPath = val
+		} else if val, found := strings.CutPrefix(line, "Branch: "); found {
+			meta.Branch = val
+		} else if val, found := strings.CutPrefix(line, "Mode: "); found {
+			meta.Mode = val
+		} else if val, found := strings.CutPrefix(line, "Started: "); found {
+			t, err := time.Parse("2006-01-02 15:04:05", val)
+			if err == nil {
+				meta.StartTime = t
 			}
 		}
 	}
@@ -494,13 +487,7 @@ func loadProgressFileIntoSession(path string, session *Session) {
 
 			// emit pending section with this event's timestamp (for accurate durations)
 			if pendingSection != "" {
-				_ = session.Publish(Event{
-					Type:      EventTypeSection,
-					Phase:     phase,
-					Section:   pendingSection,
-					Text:      pendingSection,
-					Timestamp: ts,
-				})
+				emitPendingSection(session, pendingSection, phase, ts)
 				pendingSection = ""
 			}
 
@@ -545,5 +532,38 @@ func phaseFromSection(name string) processor.Phase {
 		return processor.PhaseClaudeEval
 	default:
 		return processor.PhaseTask
+	}
+}
+
+// emitPendingSection publishes section and task_start events for a pending section.
+// task_start is emitted before section for task iteration sections.
+func emitPendingSection(session *Session, sectionName string, phase processor.Phase, ts time.Time) {
+	// emit task_start event for task iteration sections
+	if matches := taskIterationRegex.FindStringSubmatch(sectionName); matches != nil {
+		taskNum, err := strconv.Atoi(matches[1])
+		if err != nil {
+			// log parse error but continue - section will still be emitted
+			log.Printf("[WARN] failed to parse task number from section %q: %v", sectionName, err)
+		} else {
+			if err := session.Publish(Event{
+				Type:      EventTypeTaskStart,
+				Phase:     phase,
+				TaskNum:   taskNum,
+				Text:      sectionName,
+				Timestamp: ts,
+			}); err != nil {
+				log.Printf("[WARN] failed to publish task_start event: %v", err)
+			}
+		}
+	}
+
+	if err := session.Publish(Event{
+		Type:      EventTypeSection,
+		Phase:     phase,
+		Section:   sectionName,
+		Text:      sectionName,
+		Timestamp: ts,
+	}); err != nil {
+		log.Printf("[WARN] failed to publish section event: %v", err)
 	}
 }

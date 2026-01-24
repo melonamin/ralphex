@@ -10,7 +10,12 @@
     <aside class="session-sidebar" id="session-sidebar">
         <div class="sidebar-header">
             <span class="sidebar-title">Sessions</span>
-            <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar (S)">◀</button>
+            <div class="sidebar-controls">
+                <button class="view-toggle" id="view-toggle" title="Sorted by time (click to group by project)">
+                    <span class="view-icon">T</span>
+                </button>
+                <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar (S)">◀</button>
+            </div>
         </div>
         <div class="session-list" id="session-list">
             <div class="session-loading">Loading sessions...</div>
@@ -45,7 +50,7 @@
 
         <div class="search-bar">
             <input type="text" id="search" placeholder="Search... (press / to focus)" autocomplete="off">
-            <span class="search-hint">Press Escape to clear, P to toggle plan, S to toggle sessions</span>
+            <span class="search-hint">? for keyboard shortcuts</span>
         </div>
 
         <div class="main-container">
@@ -66,6 +71,45 @@
 
         <div class="scroll-indicator" id="scroll-indicator">
             <button id="scroll-to-bottom">Scroll to bottom</button>
+        </div>
+    </div>
+
+    <div class="help-overlay" id="help-overlay">
+        <div class="help-modal">
+            <div class="help-header">
+                <span class="help-title">Keyboard Shortcuts</span>
+                <button class="help-close" id="help-close">×</button>
+            </div>
+            <div class="help-content">
+                <div class="help-section">
+                    <div class="help-section-title">Navigation</div>
+                    <div class="help-row"><kbd>j</kbd> <span>Next section</span></div>
+                    <div class="help-row"><kbd>k</kbd> <span>Previous section</span></div>
+                    <div class="help-row"><kbd>Space</kbd> <span>Toggle focused section</span></div>
+                    <div class="help-row"><kbd>Enter</kbd> <span>Toggle focused section</span></div>
+                </div>
+                <div class="help-section">
+                    <div class="help-section-title">Sections</div>
+                    <div class="help-row"><kbd>e</kbd> <span>Expand all sections</span></div>
+                    <div class="help-row"><kbd>c</kbd> <span>Collapse all sections</span></div>
+                </div>
+                <div class="help-section">
+                    <div class="help-section-title">Panels</div>
+                    <div class="help-row"><kbd>p</kbd> <span>Toggle plan panel</span></div>
+                    <div class="help-row"><kbd>s</kbd> <span>Toggle sessions sidebar</span></div>
+                    <div class="help-row"><kbd>t</kbd> <span>Sessions: sort by time</span></div>
+                    <div class="help-row"><kbd>g</kbd> <span>Sessions: group by project</span></div>
+                </div>
+                <div class="help-section">
+                    <div class="help-section-title">Search</div>
+                    <div class="help-row"><kbd>/</kbd> <span>Focus search</span></div>
+                    <div class="help-row"><kbd>Esc</kbd> <span>Clear search / close help</span></div>
+                </div>
+                <div class="help-section">
+                    <div class="help-section-title">Other</div>
+                    <div class="help-row"><kbd>?</kbd> <span>Show this help</span></div>
+                </div>
+            </div>
         </div>
     </div>
 
