@@ -11,6 +11,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// resolveSymlinks resolves symlinks in the given path for test comparison.
+// handles platform-specific symlink differences (e.g., macOS /var -> /private/var).
+func resolveSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err, "failed to resolve symlinks for %s", path)
+	return resolved
+}
+
 func TestIsProgressFile(t *testing.T) {
 	tests := []struct {
 		path     string
@@ -47,7 +56,7 @@ func TestResolveWatchDirs_CLIPrecedence(t *testing.T) {
 	// CLI flags take precedence over config
 	result := ResolveWatchDirs([]string{cliDir}, []string{configDir})
 	require.Len(t, result, 1)
-	assert.Equal(t, cliDir, result[0])
+	assert.Equal(t, resolveSymlinks(t, cliDir), result[0])
 }
 
 func TestResolveWatchDirs_ConfigFallback(t *testing.T) {
@@ -59,7 +68,7 @@ func TestResolveWatchDirs_ConfigFallback(t *testing.T) {
 	// empty CLI falls back to config
 	result := ResolveWatchDirs(nil, []string{configDir})
 	require.Len(t, result, 1)
-	assert.Equal(t, configDir, result[0])
+	assert.Equal(t, resolveSymlinks(t, configDir), result[0])
 }
 
 func TestResolveWatchDirs_DefaultCwd(t *testing.T) {
@@ -82,7 +91,7 @@ func TestResolveWatchDirs_DeduplicatesAndNormalizes(t *testing.T) {
 	// pass same dir multiple times with different representations
 	result := ResolveWatchDirs([]string{testDir, testDir, testDir}, nil)
 	require.Len(t, result, 1)
-	assert.Equal(t, testDir, result[0])
+	assert.Equal(t, resolveSymlinks(t, testDir), result[0])
 }
 
 func TestResolveWatchDirs_InvalidDirsIgnored(t *testing.T) {
@@ -96,7 +105,7 @@ func TestResolveWatchDirs_InvalidDirsIgnored(t *testing.T) {
 	invalidDir := filepath.Join(tmpDir, "nonexistent")
 	result := ResolveWatchDirs([]string{invalidDir, validDir}, nil)
 	require.Len(t, result, 1)
-	assert.Equal(t, validDir, result[0])
+	assert.Equal(t, resolveSymlinks(t, validDir), result[0])
 }
 
 func TestResolveWatchDirs_AllInvalidFallsBackToCwd(t *testing.T) {
@@ -124,7 +133,7 @@ func TestNormalizeDirs_RelativePaths(t *testing.T) {
 	// pass relative path
 	result := normalizeDirs([]string{"subdir"})
 	require.Len(t, result, 1)
-	assert.Equal(t, subDir, result[0])
+	assert.Equal(t, resolveSymlinks(t, subDir), result[0])
 }
 
 func TestWatcher_NewWatcher(t *testing.T) {
