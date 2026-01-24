@@ -316,6 +316,7 @@ func (s *Server) getSession(r *http.Request) (*Session, error) {
 type SessionInfo struct {
 	ID           string       `json:"id"`
 	State        SessionState `json:"state"`
+	Dir          string       `json:"dir"`
 	PlanPath     string       `json:"planPath,omitempty"`
 	Branch       string       `json:"branch,omitempty"`
 	Mode         string       `json:"mode,omitempty"`
@@ -352,6 +353,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		infos = append(infos, SessionInfo{
 			ID:           session.ID,
 			State:        session.GetState(),
+			Dir:          extractProjectDir(session.Path),
 			PlanPath:     meta.PlanPath,
 			Branch:       meta.Branch,
 			Mode:         meta.Mode,
@@ -369,4 +371,17 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(data)
+}
+
+// extractProjectDir extracts project directory name from session path.
+// handles edge cases where path has no meaningful parent directory.
+func extractProjectDir(path string) string {
+	dir := filepath.Dir(path)
+	name := filepath.Base(dir)
+
+	// handle edge cases: root paths, current directory, relative paths
+	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+		return "Unknown"
+	}
+	return name
 }

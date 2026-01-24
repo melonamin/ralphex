@@ -226,6 +226,8 @@ var timestampRegex = regexp.MustCompile(`^\[(\d{2}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}
 // section header regex: --- section name ---
 var sectionRegex = regexp.MustCompile(`^--- (.+) ---$`)
 
+// task iteration regex: task iteration N (extracts the number)
+var taskIterationRegex = regexp.MustCompile(`(?i)^task iteration (\d+)$`)
 
 // parseLine parses a progress file line and returns an Event.
 // returns nil for lines that should be skipped (header lines).

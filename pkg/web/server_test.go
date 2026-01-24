@@ -731,3 +731,49 @@ func TestLoadPlanWithFallback(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+func TestExtractProjectDir(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{
+			name:     "nested path extracts parent directory",
+			path:     "/home/user/project/progress-test.txt",
+			expected: "project",
+		},
+		{
+			name:     "deeply nested path",
+			path:     "/home/user/dev/projects/myapp/progress.txt",
+			expected: "myapp",
+		},
+		{
+			name:     "root level file returns Unknown",
+			path:     "/progress.txt",
+			expected: "Unknown",
+		},
+		{
+			name:     "relative path with dot returns Unknown",
+			path:     "progress.txt",
+			expected: "Unknown",
+		},
+		{
+			name:     "explicit dot-slash returns Unknown",
+			path:     "./progress.txt",
+			expected: "Unknown",
+		},
+		{
+			name:     "parent reference returns Unknown",
+			path:     "../progress.txt",
+			expected: "Unknown",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := extractProjectDir(tc.path)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
