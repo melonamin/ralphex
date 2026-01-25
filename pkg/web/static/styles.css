@@ -93,6 +93,17 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+/* subtle noise texture for depth */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    opacity: 0.03;
+    pointer-events: none;
+    z-index: -1;
+}
+
 /* ═══════════════════════════════════════════════════════════════
    SESSION SIDEBAR
    ═══════════════════════════════════════════════════════════════ */
@@ -367,8 +378,8 @@ body {
    ═══════════════════════════════════════════════════════════════ */
 
 header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-subtle);
+    background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+    border-bottom: 1px solid var(--phase-task);
     padding: var(--space-md) var(--space-xl);
     flex-shrink: 0;
 }
@@ -929,6 +940,14 @@ header h1 {
     margin-top: var(--space-xl);
     margin-bottom: var(--space-md);
     width: 100%;
+    animation: section-enter 0.2s ease-out;
+}
+
+@keyframes section-enter {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
 }
 
 .section-header:first-child {
@@ -1065,8 +1084,7 @@ header h1 {
     z-index: 50;
 }
 
-.main-container.plan-collapsed ~ .scroll-indicator,
-.plan-collapsed .scroll-indicator {
+body.plan-collapsed .scroll-indicator {
     right: var(--space-xl);
 }
 
