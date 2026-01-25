@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -101,21 +102,35 @@ func buildBinary() error {
 }
 
 func copyTestData() error {
+	testDataPath, err := resolveTestDataDir()
+	if err != nil {
+		return fmt.Errorf("resolve test data dir: %w", err)
+	}
+
 	// copy progress file
-	progressSrc := filepath.Join(testDataDir, "progress-test.txt")
+	progressSrc := filepath.Join(testDataPath, "progress-test.txt")
 	progressDst := filepath.Join(testTmpDir, "progress-test.txt")
 	if err := copyFile(progressSrc, progressDst); err != nil {
 		return fmt.Errorf("copy progress file: %w", err)
 	}
 
 	// copy plan file
-	planSrc := filepath.Join(testDataDir, "test-plan.md")
+	planSrc := filepath.Join(testDataPath, "test-plan.md")
 	planDst := filepath.Join(testTmpDir, "test-plan.md")
 	if err := copyFile(planSrc, planDst); err != nil {
 		return fmt.Errorf("copy plan file: %w", err)
 	}
 
 	return nil
+}
+
+func resolveTestDataDir() (string, error) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", fmt.Errorf("locate test file")
+	}
+
+	return filepath.Join(filepath.Dir(filename), testDataDir), nil
 }
 
 func copyFile(src, dst string) error {
