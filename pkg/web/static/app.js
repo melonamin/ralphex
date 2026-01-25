@@ -104,6 +104,7 @@
     // initialize plan panel state
     if (state.planCollapsed) {
         mainContainer.classList.add('plan-collapsed');
+        document.body.classList.add('plan-collapsed');
     }
     // always set icon explicitly based on state (don't rely on HTML default)
     planToggle.textContent = state.planCollapsed ? '◀' : '▶';
@@ -147,7 +148,7 @@
             } else {
                 // for completed sessions, clear active task styling
                 if (state.isTerminalState) {
-                    if (!state.hasRunTerminalCleanup) { state.hasRunTerminalCleanup = true; clearActiveTaskStyling(); }
+                    runTerminalCleanupOnce();
                 }
 
                 state.autoScroll = savedAutoScroll;
@@ -532,7 +533,7 @@
                     clearInterval(state.elapsedTimerInterval);
                     state.elapsedTimerInterval = null;
                 }
-                if (!state.hasRunTerminalCleanup) { state.hasRunTerminalCleanup = true; clearActiveTaskStyling(); }
+                runTerminalCleanupOnce();
             }
             return;
         }
@@ -872,9 +873,11 @@
 
         if (state.planCollapsed) {
             mainContainer.classList.add('plan-collapsed');
+            document.body.classList.add('plan-collapsed');
             planToggle.textContent = '◀';
         } else {
             mainContainer.classList.remove('plan-collapsed');
+            document.body.classList.remove('plan-collapsed');
             planToggle.textContent = '▶';
         }
     }
@@ -1610,86 +1613,6 @@
         }
     });
 
-    // get export CSS styles for standalone HTML export.
-    // MAINTENANCE: this minified CSS must be kept in sync with styles.css.
-    // when updating styles.css, regenerate this by minifying the CSS and updating here.
-    // the export feature creates offline-viewable HTML files that don't require serving.
-    function getExportCss() {
-        return ':root{--bg-primary:#0d1117;--bg-secondary:#161b22;--bg-tertiary:#21262d;--text-primary:#e6edf3;--text-secondary:#8b949e;--text-muted:#484f58;--border-color:#30363d;--phase-task:#3fb950;--phase-review:#58a6ff;--phase-codex:#d2a8ff;--color-error:#f85149;--color-warn:#d29922;--color-section:#ffa657;--color-timestamp:#6e7681}\n' +
-            '*{box-sizing:border-box;margin:0;padding:0}\n' +
-            'html,body{height:100%;overflow:hidden}\n' +
-            'body{font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;font-size:13px;line-height:1.5;background:var(--bg-primary);color:var(--text-primary);display:flex;flex-direction:column}\n' +
-            'header{background:var(--bg-secondary);border-bottom:1px solid var(--border-color);padding:12px 20px;flex-shrink:0}\n' +
-            '.header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n' +
-            'header h1{font-size:16px;font-weight:600;color:var(--phase-task);margin:0}\n' +
-            '.status-area{display:flex;align-items:center;gap:12px}\n' +
-            '.elapsed-time{font-size:12px;color:var(--text-primary);font-weight:500}\n' +
-            '.status-badge{font-size:11px;font-weight:600;padding:4px 10px;border-radius:4px;background:var(--bg-tertiary);color:var(--text-secondary);text-transform:uppercase}\n' +
-            '.status-badge.task{background:rgba(63,185,80,0.15);color:var(--phase-task);border:1px solid var(--phase-task)}\n' +
-            '.status-badge.review{background:rgba(88,166,255,0.15);color:var(--phase-review);border:1px solid var(--phase-review)}\n' +
-            '.status-badge.codex{background:rgba(210,168,255,0.15);color:var(--phase-codex);border:1px solid var(--phase-codex)}\n' +
-            '.status-badge.completed{background:rgba(63,185,80,0.15);color:var(--phase-task);border:1px solid var(--phase-task)}\n' +
-            '.info{display:flex;gap:20px;font-size:12px;color:var(--text-secondary)}\n' +
-            '.info span::before{color:var(--text-muted);margin-right:4px}\n' +
-            '.plan::before{content:"Plan:"}.branch::before{content:"Branch:"}\n' +
-            '.phase-nav{display:flex;gap:4px;padding:8px 20px;background:var(--bg-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0;align-items:center}\n' +
-            '.phase-tab,.collapse-btn{font-family:inherit;font-size:12px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer}\n' +
-            '.phase-tab:hover,.collapse-btn:hover{background:var(--border-color);color:var(--text-primary)}\n' +
-            '.phase-tab.active{background:var(--bg-primary);color:var(--text-primary);border-color:var(--text-muted)}\n' +
-            '.phase-tab[data-phase="task"].active{color:var(--phase-task);border-color:var(--phase-task)}\n' +
-            '.phase-tab[data-phase="review"].active{color:var(--phase-review);border-color:var(--phase-review)}\n' +
-            '.phase-tab[data-phase="codex"].active{color:var(--phase-codex);border-color:var(--phase-codex)}\n' +
-            '.nav-separator{width:1px;height:20px;background:var(--border-color);margin:0 8px}\n' +
-            '.collapse-btn{font-size:11px;padding:4px 8px;color:var(--text-muted)}\n' +
-            '.search-bar{display:flex;align-items:center;gap:12px;padding:8px 20px;background:var(--bg-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}\n' +
-            '#search{flex:1;max-width:400px;font-family:inherit;font-size:13px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--bg-tertiary);color:var(--text-primary);outline:none}\n' +
-            '#search:focus{border-color:var(--phase-review)}\n' +
-            '.search-hint{font-size:11px;color:var(--text-muted)}\n' +
-            '.main-container{flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden}\n' +
-            '.main-container.plan-collapsed{grid-template-columns:1fr 0}\n' +
-            '.plan-panel{background:var(--bg-secondary);border-left:1px solid var(--border-color);display:flex;flex-direction:column;overflow:hidden}\n' +
-            '.main-container.plan-collapsed .plan-panel{display:none}\n' +
-            '.plan-panel-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border-color);flex-shrink:0}\n' +
-            '.plan-panel-title{font-weight:600;color:var(--text-primary)}\n' +
-            '.plan-toggle{font-family:inherit;font-size:12px;padding:4px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-tertiary);color:var(--text-secondary);cursor:pointer}\n' +
-            '.plan-content{flex:1;overflow-y:auto;padding:12px 16px}\n' +
-            '.output-panel{overflow-y:auto;padding:16px 20px}\n' +
-            '#output{display:flex;flex-direction:column;gap:2px}\n' +
-            '.output-line{display:flex;gap:12px;padding:2px 4px;border-radius:3px}\n' +
-            '.output-line:hover{background:var(--bg-secondary)}\n' +
-            '.output-line.hidden,.section-header.hidden{display:none}\n' +
-            '.timestamp{color:var(--color-timestamp);flex-shrink:0;font-size:12px}\n' +
-            '.content{flex:1;white-space:pre-wrap;word-break:break-word}\n' +
-            '.output-line[data-phase="task"] .content{color:var(--phase-task)}\n' +
-            '.output-line[data-phase="review"] .content{color:var(--phase-review)}\n' +
-            '.output-line[data-phase="codex"] .content{color:var(--phase-codex)}\n' +
-            '.output-line[data-type="error"] .content{color:var(--color-error)}\n' +
-            '.output-line[data-type="warn"] .content{color:var(--color-warn)}\n' +
-            '.output-line[data-type="signal"] .content{color:#ff7b72;font-weight:600}\n' +
-            '.section-header{margin-top:16px;margin-bottom:8px}\n' +
-            '.section-header summary{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;cursor:pointer;list-style:none;color:var(--color-section);font-weight:600}\n' +
-            '.section-header summary::-webkit-details-marker{display:none}\n' +
-            '.section-header summary::before{content:"▶";font-size:10px;transition:transform 0.15s}\n' +
-            '.section-header[open] summary::before{transform:rotate(90deg)}\n' +
-            '.section-phase{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--bg-tertiary);font-weight:normal}\n' +
-            '.section-header[data-phase="task"] .section-phase{color:var(--phase-task);border:1px solid var(--phase-task)}\n' +
-            '.section-header[data-phase="review"] .section-phase{color:var(--phase-review);border:1px solid var(--phase-review)}\n' +
-            '.section-header[data-phase="codex"] .section-phase{color:var(--phase-codex);border:1px solid var(--phase-codex)}\n' +
-            '.section-duration{margin-left:auto;font-size:11px;font-weight:normal;color:var(--text-secondary)}\n' +
-            '.section-content{padding:8px 0 8px 20px;border-left:2px solid var(--border-color);margin-left:6px;width:100%;box-sizing:border-box}\n' +
-            '.highlight{background:rgba(210,169,34,0.3);color:var(--color-warn);border-radius:2px;padding:0 2px}\n' +
-            '.plan-task{margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border-color)}\n' +
-            '.plan-task:last-child{border-bottom:none}\n' +
-            '.plan-task-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:600;font-size:12px}\n' +
-            '.plan-task-status{width:16px;text-align:center}\n' +
-            '.plan-task-status.pending{color:var(--text-muted)}.plan-task-status.done{color:var(--phase-task)}\n' +
-            '.plan-task.active{border-left:3px solid var(--phase-review);padding-left:12px;margin-left:-12px}\n' +
-            '.plan-checkbox{display:flex;align-items:flex-start;gap:8px;padding:4px 0 4px 24px;font-size:12px;color:var(--text-secondary)}\n' +
-            '.plan-checkbox.checked .plan-checkbox-text{text-decoration:line-through;opacity:0.6}\n' +
-            '.plan-checkbox-icon.checked{color:var(--phase-task)}\n' +
-            '@media(max-width:768px){.main-container{grid-template-columns:1fr}.plan-panel{display:none}}\n';
-    }
-
     // get export JavaScript for standalone HTML export.
     // MAINTENANCE: this minified JS provides basic filtering/search in exported HTML.
     // it's a simplified version of the main app logic - update if core filtering changes.
@@ -1726,12 +1649,12 @@
     }
 
     // build export HTML head section
-    function buildExportHead(safeTitle) {
+    function buildExportHead(safeTitle, css) {
         return '<!DOCTYPE html>\n<html lang="en">\n<head>\n' +
             '<meta charset="UTF-8">\n' +
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
             '<title>' + safeTitle + ' - Export</title>\n' +
-            '<style>\n' + getExportCss() + '</style>\n</head>\n';
+            '<style>\n' + css + '</style>\n</head>\n';
     }
 
     // build export HTML header section
@@ -1785,7 +1708,7 @@
     }
 
     // build export HTML document - uses escapeHtml to prevent XSS from user content
-    function buildExportHtml(data, clones) {
+    function buildExportHtml(data, clones, css) {
         var safeTitle = escapeHtml(data.title);
         var safePlanName = escapeHtml(data.planName);
         var safeBranch = escapeHtml(data.branch);
@@ -1793,7 +1716,7 @@
         var safeStatus = escapeHtml(data.status);
         var safeStatusClass = escapeHtml(data.statusClass);
 
-        return buildExportHead(safeTitle) +
+        return buildExportHead(safeTitle, css) +
             '<body>\n' +
             buildExportHeader(safeElapsed, safeStatus, safeStatusClass, safePlanName, safeBranch) +
             buildExportNav() +
@@ -1815,11 +1738,23 @@
 
     // export session as standalone HTML
     function exportSession() {
-        var data = collectSessionData();
-        var clones = cloneContentForExport();
-        var html = buildExportHtml(data, clones);
-        var filename = 'ralphex-' + data.planName.replace(/[^a-z0-9]/gi, '-') + '.html';
-        downloadFile(html, filename, 'text/html');
+        // fetch current stylesheet instead of using hardcoded copy
+        fetch('/static/styles.css')
+            .then(function(response) {
+                if (!response.ok) throw new Error('Failed to fetch styles');
+                return response.text();
+            })
+            .then(function(css) {
+                var data = collectSessionData();
+                var clones = cloneContentForExport();
+                var html = buildExportHtml(data, clones, css);
+                var filename = 'ralphex-' + data.planName.replace(/[^a-z0-9]/gi, '-') + '.html';
+                downloadFile(html, filename, 'text/html');
+            })
+            .catch(function(err) {
+                console.error('Export failed:', err);
+                alert('Export failed: ' + err.message);
+            });
     }
 
     exportBtn.addEventListener('click', exportSession);
@@ -1843,6 +1778,13 @@
                 trackSectionToggle(sectionId, false);
             }
         });
+    }
+
+    // run terminal cleanup once (guard prevents double-calls)
+    function runTerminalCleanupOnce() {
+        if (state.hasRunTerminalCleanup) return;
+        state.hasRunTerminalCleanup = true;
+        clearActiveTaskStyling();
     }
 
     // clear active task styling (used when session completes)
