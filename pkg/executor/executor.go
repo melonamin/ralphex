@@ -31,6 +31,11 @@ type CommandRunner interface {
 type execClaudeRunner struct{}
 
 func (r *execClaudeRunner) Run(ctx context.Context, name string, args ...string) (io.Reader, func() error, error) {
+	// check context before starting to avoid spawning a process that will be immediately killed
+	if err := ctx.Err(); err != nil {
+		return nil, nil, fmt.Errorf("context already canceled: %w", err)
+	}
+
 	// use exec.Command (not CommandContext) because we handle cancellation ourselves
 	// to ensure the entire process group is killed, not just the direct child
 	cmd := exec.Command(name, args...) //nolint:noctx // intentional: we handle context cancellation via process group kill
