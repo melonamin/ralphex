@@ -2,14 +2,18 @@ package executor
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"sync"
 	"syscall"
 	"time"
 )
 
+// gracefulShutdownDelay is the time to wait between SIGTERM and SIGKILL.
+const gracefulShutdownDelay = 100 * time.Millisecond
+
 // processGroupCleanup manages process group lifecycle for graceful shutdown.
-// it ensures that when context is canceled, the entire process tree is killed,
+// It ensures that when context is canceled, the entire process tree is killed,
 // not just the direct child process.
 type processGroupCleanup struct {
 	cmd  *exec.Cmd
@@ -19,14 +23,15 @@ type processGroupCleanup struct {
 }
 
 // setupProcessGroup configures command to run in its own process group.
-// this allows killing all descendant processes when cleanup is needed.
+// This allows killing all descendant processes when cleanup is needed.
+// Must be called before cmd.Start().
 func setupProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
 // newProcessGroupCleanup creates a cleanup handler for the given command.
-// the command must already be started before calling this.
-// caller must call Wait() exactly once to ensure proper cleanup.
+// The command must already be started before calling this.
+// Caller must eventually call Wait() to ensure proper resource cleanup.
 func newProcessGroupCleanup(cmd *exec.Cmd, cancelCh <-chan struct{}) *processGroupCleanup {
 	pg := &processGroupCleanup{
 		cmd:  cmd,
@@ -50,39 +55,38 @@ func (pg *processGroupCleanup) watchForCancel(cancelCh <-chan struct{}) {
 }
 
 // killProcessGroup sends SIGTERM followed by SIGKILL to the entire process group.
-// uses graceful shutdown: SIGTERM first, then SIGKILL after brief delay.
+// Uses graceful shutdown: SIGTERM first, then SIGKILL after brief delay.
 func (pg *processGroupCleanup) killProcessGroup() {
-	if pg.cmd.Process == nil {
+	process := pg.cmd.Process
+	if process == nil {
 		return
 	}
 
-	pgid := -pg.cmd.Process.Pid
+	pid := process.Pid
+	if pid <= 0 {
+		log.Printf("[executor] invalid PID %d, skipping process group kill", pid)
+		return
+	}
+
+	pgid := -pid
 
 	// try graceful shutdown first with SIGTERM
-	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil {
-		// process might already be dead (ESRCH), that's fine
-		if err != syscall.ESRCH {
-			// log unexpected errors but continue to SIGKILL
-			fmt.Printf("[executor] SIGTERM failed for pgid %d: %v\n", pgid, err)
-		}
-		return
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil && err != syscall.ESRCH {
+		log.Printf("[executor] SIGTERM failed for pgid %d: %v", pgid, err)
 	}
 
 	// brief delay for graceful shutdown
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(gracefulShutdownDelay)
 
-	// force kill if still alive
-	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil {
-		// ESRCH means process already exited after SIGTERM - that's fine
-		if err != syscall.ESRCH {
-			fmt.Printf("[executor] SIGKILL failed for pgid %d: %v\n", pgid, err)
-		}
+	// force kill if still alive (always attempt, even if SIGTERM failed)
+	if err := syscall.Kill(pgid, syscall.SIGKILL); err != nil && err != syscall.ESRCH {
+		log.Printf("[executor] SIGKILL failed for pgid %d: %v", pgid, err)
 	}
 }
 
 // Wait waits for the command to complete and cleans up resources.
-// it is idempotent - multiple calls return the same result without panic.
-// caller MUST call this exactly once logically, but repeated calls are safe.
+// It is safe to call multiple times - subsequent calls return the cached result.
+// Callers must eventually call Wait to avoid leaking resources.
 func (pg *processGroupCleanup) Wait() error {
 	pg.once.Do(func() {
 		pg.err = pg.cmd.Wait()
