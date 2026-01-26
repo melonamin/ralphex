@@ -1154,6 +1154,31 @@ func TestFindRecentPlan(t *testing.T) {
 	})
 }
 
+func TestValidateRepoHasCommits(t *testing.T) {
+	t.Run("returns nil for repo with commits", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		gitOps, err := git.Open(dir)
+		require.NoError(t, err)
+
+		err = validateRepoHasCommits(gitOps)
+		assert.NoError(t, err)
+	})
+
+	t.Run("returns error for empty repo", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := gogit.PlainInit(dir, false)
+		require.NoError(t, err)
+
+		gitOps, err := git.Open(dir)
+		require.NoError(t, err)
+
+		err = validateRepoHasCommits(gitOps)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "repository has no commits")
+		assert.Contains(t, err.Error(), "git add . && git commit")
+	})
+}
+
 // setupTestRepo creates a test git repository with an initial commit.
 func setupTestRepo(t *testing.T) string {
 	t.Helper()

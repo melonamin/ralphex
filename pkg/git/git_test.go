@@ -929,6 +929,31 @@ func TestRepo_FileHasChanges(t *testing.T) {
 	})
 }
 
+func TestRepo_HasCommits(t *testing.T) {
+	t.Run("returns true for repo with commits", func(t *testing.T) {
+		dir := setupTestRepo(t)
+		repo, err := Open(dir)
+		require.NoError(t, err)
+
+		hasCommits, err := repo.HasCommits()
+		require.NoError(t, err)
+		assert.True(t, hasCommits)
+	})
+
+	t.Run("returns false for empty repo", func(t *testing.T) {
+		dir := t.TempDir()
+		_, err := git.PlainInit(dir, false)
+		require.NoError(t, err)
+
+		repo, err := Open(dir)
+		require.NoError(t, err)
+
+		hasCommits, err := repo.HasCommits()
+		require.NoError(t, err)
+		assert.False(t, hasCommits)
+	})
+}
+
 // setupTestRepo creates a test git repository with an initial commit.
 func setupTestRepo(t *testing.T) string {
 	t.Helper()

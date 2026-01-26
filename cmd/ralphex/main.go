@@ -154,6 +154,11 @@ func run(ctx context.Context, o opts) error {
 		return fmt.Errorf("open git repo: %w", err)
 	}
 
+	// validate repository has commits (early check with helpful error)
+	if validateErr := validateRepoHasCommits(gitOps); validateErr != nil {
+		return validateErr
+	}
+
 	mode := determineMode(o)
 
 	// plan mode has different flow - doesn't require plan file selection
@@ -585,6 +590,22 @@ func checkDependencies(deps ...string) error {
 		if _, err := exec.LookPath(dep); err != nil {
 			return fmt.Errorf("%s not found in PATH", dep)
 		}
+	}
+	return nil
+}
+
+// validateRepoHasCommits checks that the repository has at least one commit.
+// returns a user-friendly error message if the repository is empty.
+func validateRepoHasCommits(gitOps *git.Repo) error {
+	hasCommits, err := gitOps.HasCommits()
+	if err != nil {
+		return fmt.Errorf("check commits: %w", err)
+	}
+	if !hasCommits {
+		return errors.New("repository has no commits\n\n" +
+			"ralphex needs at least one commit to create feature branches.\n\n" +
+			"create an initial commit first:\n" +
+			"  git add . && git commit -m \"initial commit\"")
 	}
 	return nil
 }
