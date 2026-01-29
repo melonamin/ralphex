@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,12 @@ const (
 	baseURL     = "http://127.0.0.1:18080"
 	binaryPath  = "/tmp/ralphex-e2e"
 	testDataDir = "testdata"
+
+	// polling intervals for condition-based waits (replaces time.Sleep).
+	pollTimeout      = 5 * time.Second
+	pollInterval     = 100 * time.Millisecond
+	longPollTimeout  = 15 * time.Second
+	longPollInterval = 500 * time.Millisecond
 )
 
 var (
@@ -361,6 +368,134 @@ func isDetailsOpen(locator playwright.Locator) bool {
 		return false
 	}
 	return open
+}
+
+// hasClass checks if classAttr contains the exact CSS class token.
+// uses strings.Fields for exact token matching to avoid false positives
+// (e.g. "sidebar-collapsed" matching "collapsed").
+func hasClass(classAttr, class string) bool {
+	for _, c := range strings.Fields(classAttr) {
+		if c == class {
+			return true
+		}
+	}
+	return false
+}
+
+// waitForClass polls until the locator's class attribute contains the exact token.
+func waitForClass(t *testing.T, loc playwright.Locator, class string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c, err := loc.GetAttribute("class")
+		return err == nil && hasClass(c, class)
+	}, pollTimeout, pollInterval, "element should have class %q", class)
+}
+
+// waitForClassGone polls until the locator's class attribute no longer contains the exact token.
+func waitForClassGone(t *testing.T, loc playwright.Locator, class string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		c, err := loc.GetAttribute("class")
+		return err == nil && !hasClass(c, class)
+	}, pollTimeout, pollInterval, "element should not have class %q", class)
+}
+
+// waitAllDetailsState polls until all sections have the specified open state.
+func waitAllDetailsState(t *testing.T, sections playwright.Locator, count int, open bool) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		for i := 0; i < count; i++ {
+			if isDetailsOpen(sections.Nth(i)) != open {
+				return false
+			}
+		}
+		return true
+	}, pollTimeout, pollInterval, "all sections should have open=%v", open)
+}
+
+// waitInputValue polls until the locator's input value matches expected.
+func waitInputValue(t *testing.T, loc playwright.Locator, expected string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		v, err := loc.InputValue()
+		return err == nil && v == expected
+	}, pollTimeout, pollInterval, "input should have value %q", expected)
+}
+
+// waitFocused polls until the locator's element is the active (focused) element.
+func waitFocused(t *testing.T, loc playwright.Locator) {
+	t.Helper()
+	var lastErr error
+	require.Eventually(t, func() bool {
+		focused, err := loc.Evaluate("el => document.activeElement === el", nil)
+		if err != nil {
+			lastErr = err
+			return false
+		}
+		b, ok := focused.(bool)
+		if !ok {
+			lastErr = fmt.Errorf("expected bool, got %T", focused)
+			return false
+		}
+		return b
+	}, pollTimeout, pollInterval, "element should be focused, last error: %v", lastErr)
+}
+
+// waitDetailsToggle polls until a details element's open state differs from initialOpen.
+func waitDetailsToggle(t *testing.T, section playwright.Locator, initialOpen bool) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return isDetailsOpen(section) != initialOpen
+	}, pollTimeout, pollInterval, "section open state should toggle")
+}
+
+// waitForCount polls until the locator count equals expected (uses long timeout for polling-based discovery).
+func waitForCount(t *testing.T, loc playwright.Locator, expected int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		count, err := loc.Count()
+		return err == nil && count == expected
+	}, longPollTimeout, longPollInterval, "expected %d elements", expected)
+}
+
+// waitForMinCount polls until the locator count is at least min.
+func waitForMinCount(t *testing.T, loc playwright.Locator, min int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		count, err := loc.Count()
+		return err == nil && count >= min
+	}, longPollTimeout, longPollInterval, "expected at least %d elements", min)
+}
+
+// waitForText polls until the locator's text content equals expected.
+func waitForText(t *testing.T, loc playwright.Locator, expected string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		text, err := loc.TextContent()
+		return err == nil && text == expected
+	}, longPollTimeout, pollInterval, "element should have text %q", expected)
+}
+
+// waitForTextContains polls until the locator's text content contains substr.
+func waitForTextContains(t *testing.T, loc playwright.Locator, substr string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		text, err := loc.TextContent()
+		return err == nil && strings.Contains(text, substr)
+	}, longPollTimeout, pollInterval, "element text should contain %q", substr)
+}
+
+// waitForScrollIndicator polls until the scroll indicator has the expected visibility state.
+func waitForScrollIndicator(t *testing.T, indicator playwright.Locator, visible bool) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		result, err := indicator.Evaluate("el => el.classList.contains('visible')", nil)
+		if err != nil {
+			return false
+		}
+		v, ok := result.(bool)
+		return ok && v == visible
+	}, pollTimeout, pollInterval, "scroll indicator visible should be %v", visible)
 }
 
 // TestDashboardSmoke verifies the server is running and page loads.

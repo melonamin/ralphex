@@ -54,9 +54,7 @@ func TestPhaseNavigation(t *testing.T) {
 
 	t.Run("all tab is active by default", func(t *testing.T) {
 		allTab := page.Locator(".phase-tab[data-phase='all']")
-		class, err := allTab.GetAttribute("class")
-		require.NoError(t, err)
-		assert.Contains(t, class, "active")
+		waitForClass(t, allTab, "active")
 	})
 
 	t.Run("clicking tab changes active state", func(t *testing.T) {
@@ -66,15 +64,11 @@ func TestPhaseNavigation(t *testing.T) {
 		require.NoError(t, err)
 
 		// verify it becomes active
-		class, err := taskTab.GetAttribute("class")
-		require.NoError(t, err)
-		assert.Contains(t, class, "active")
+		waitForClass(t, taskTab, "active")
 
 		// verify All tab is no longer active
 		allTab := page.Locator(".phase-tab[data-phase='all']")
-		allClass, err := allTab.GetAttribute("class")
-		require.NoError(t, err)
-		assert.NotContains(t, allClass, "active")
+		waitForClassGone(t, allTab, "active")
 	})
 }
 
@@ -112,8 +106,8 @@ func TestPlanTaskStatus(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for plan to load
-	time.Sleep(2 * time.Second)
+	// wait for plan tasks to appear
+	waitVisible(t, page, ".plan-task")
 
 	t.Run("shows task items", func(t *testing.T) {
 		tasks := page.Locator(".plan-task")
@@ -298,14 +292,8 @@ func TestKeyboardShortcutSlashFocusesSearch(t *testing.T) {
 	err = page.Keyboard().Press("/")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	// search should now be focused
-	focusedResult, err = searchInput.Evaluate("el => document.activeElement === el", nil)
-	require.NoError(t, err)
-	focused, ok = focusedResult.(bool)
-	require.True(t, ok, "expected bool from focus check evaluation")
-	assert.True(t, focused, "search should be focused after pressing /")
+	// wait for search to become focused
+	waitFocused(t, searchInput)
 }
 
 func TestKeyboardShortcutPTogglesPlanPanel(t *testing.T) {
@@ -318,36 +306,29 @@ func TestKeyboardShortcutPTogglesPlanPanel(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initiallyVisible, "plan panel should be visible initially")
 
+	mainContainer := page.Locator(".main-container")
+
 	// press p to toggle plan panel
 	err = page.Keyboard().Press("p")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// check main-container has plan-collapsed class
-	mainContainer := page.Locator(".main-container")
-	class, err := mainContainer.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "plan-collapsed", "main-container should have plan-collapsed class after pressing p")
+	// wait for plan-collapsed class to appear
+	waitForClass(t, mainContainer, "plan-collapsed")
 
 	// press p again to restore
 	err = page.Keyboard().Press("p")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// check plan-collapsed is removed
-	class, err = mainContainer.GetAttribute("class")
-	require.NoError(t, err)
-	assert.NotContains(t, class, "plan-collapsed", "plan-collapsed should be removed after pressing p again")
+	// wait for plan-collapsed class to be removed
+	waitForClassGone(t, mainContainer, "plan-collapsed")
 }
 
 func TestKeyboardShortcutExpandCollapseAll(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sections to load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	sections := page.Locator(".section-header")
 	count, err := sections.Count()
@@ -360,23 +341,15 @@ func TestKeyboardShortcutExpandCollapseAll(t *testing.T) {
 	err = page.Keyboard().Press("c")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// verify all sections are closed
-	for i := 0; i < count; i++ {
-		assert.False(t, isDetailsOpen(sections.Nth(i)), "section %d should be closed after pressing c", i)
-	}
+	// wait for all sections to be closed
+	waitAllDetailsState(t, sections, count, false)
 
 	// press e to expand all
 	err = page.Keyboard().Press("e")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// verify all sections are open
-	for i := 0; i < count; i++ {
-		assert.True(t, isDetailsOpen(sections.Nth(i)), "section %d should be open after pressing e", i)
-	}
+	// wait for all sections to be open
+	waitAllDetailsState(t, sections, count, true)
 }
 
 func TestKeyboardShortcutViewModes(t *testing.T) {
@@ -389,32 +362,23 @@ func TestKeyboardShortcutViewModes(t *testing.T) {
 	err := page.Keyboard().Press("t")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	class, err := viewToggle.GetAttribute("class")
-	require.NoError(t, err)
 	// should NOT have grouped class
-	if class != "" {
-		assert.NotContains(t, class, "grouped", "should be in recent view after pressing t")
-	}
+	waitForClassGone(t, viewToggle, "grouped")
 
 	// press g for grouped view
 	err = page.Keyboard().Press("g")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	class, err = viewToggle.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "grouped", "should be in grouped view after pressing g")
+	// should have grouped class
+	waitForClass(t, viewToggle, "grouped")
 }
 
 func TestKeyboardShortcutSectionNavigation(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sections to load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	sections := page.Locator(".section-header")
 	count, err := sections.Count()
@@ -423,43 +387,30 @@ func TestKeyboardShortcutSectionNavigation(t *testing.T) {
 		t.Skip("need at least 2 sections for navigation test")
 	}
 
+	firstSection := sections.First()
+	secondSection := sections.Nth(1)
+
 	// press j to navigate to next section
 	err = page.Keyboard().Press("j")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	// check first section has section-focused class
-	firstSection := sections.First()
-	class, err := firstSection.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "section-focused", "first section should have section-focused after pressing j")
+	// wait for first section to get section-focused class
+	waitForClass(t, firstSection, "section-focused")
 
 	// press j again to move to second section
 	err = page.Keyboard().Press("j")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	// first section should lose focus, second should have it
-	class, err = firstSection.GetAttribute("class")
-	require.NoError(t, err)
-	assert.NotContains(t, class, "section-focused", "first section should lose section-focused")
-
-	secondSection := sections.Nth(1)
-	class, err = secondSection.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "section-focused", "second section should have section-focused after pressing j again")
+	// wait for second section to get focus, first to lose it
+	waitForClass(t, secondSection, "section-focused")
+	waitForClassGone(t, firstSection, "section-focused")
 
 	// press k to go back
 	err = page.Keyboard().Press("k")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	class, err = firstSection.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "section-focused", "first section should have section-focused after pressing k")
+	// wait for first section to regain focus
+	waitForClass(t, firstSection, "section-focused")
 }
 
 func TestPlanPanelToggleBehavior(t *testing.T) {
@@ -472,23 +423,15 @@ func TestPlanPanelToggleBehavior(t *testing.T) {
 	err := page.Keyboard().Press("p")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// check main-container has plan-collapsed class
-	class, err := mainContainer.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "plan-collapsed", "main-container should have plan-collapsed after pressing p")
+	// wait for plan-collapsed class to appear
+	waitForClass(t, mainContainer, "plan-collapsed")
 
 	// press p again to restore
 	err = page.Keyboard().Press("p")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// check plan-collapsed is removed
-	class, err = mainContainer.GetAttribute("class")
-	require.NoError(t, err)
-	assert.NotContains(t, class, "plan-collapsed", "plan-collapsed should be removed after pressing p again")
+	// wait for plan-collapsed class to be removed
+	waitForClassGone(t, mainContainer, "plan-collapsed")
 }
 
 func TestScrollToBottomButton(t *testing.T) {
@@ -526,7 +469,7 @@ func TestSearchFiltering(t *testing.T) {
 	navigateToDashboard(t, page)
 
 	// wait for content to load
-	time.Sleep(2 * time.Second)
+	waitVisible(t, page, ".section-header")
 
 	searchInput := page.Locator("#search")
 
@@ -534,35 +477,22 @@ func TestSearchFiltering(t *testing.T) {
 	err := searchInput.Fill("task")
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
-	// verify search value is set
-	value, err := searchInput.InputValue()
-	require.NoError(t, err)
-	assert.Equal(t, "task", value)
+	// wait for search value to be applied
+	waitInputValue(t, searchInput, "task")
 
 	// type a nonexistent search term
 	err = searchInput.Fill("xyznonexistent123456")
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
-	// check that search highlight indicator might show "no matches"
-	// or just verify the search input still has the value
-	value, err = searchInput.InputValue()
-	require.NoError(t, err)
-	assert.Equal(t, "xyznonexistent123456", value)
+	// wait for search value to be applied
+	waitInputValue(t, searchInput, "xyznonexistent123456")
 
 	// clear search with Escape
 	err = page.Keyboard().Press("Escape")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// verify search is cleared
-	value, err = searchInput.InputValue()
-	require.NoError(t, err)
-	assert.Empty(t, value, "search should be cleared after Escape")
+	// wait for search to be cleared
+	waitInputValue(t, searchInput, "")
 }
 
 // createSessionWithPlan creates a progress file that references a specific plan.
@@ -603,18 +533,14 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		expectedSessionName := "nonexistent-plan-edge-case"
 		createSessionWithPlan(t, "missing-plan-test", planName)
 
-		// wait for file system to settle
-		time.Sleep(500 * time.Millisecond)
-
 		page := newPage(t)
 		navigateToDashboard(t, page)
 
-		// wait for sessions to load
-		time.Sleep(3 * time.Second)
+		// wait for sessions to load (poll for the expected session to appear)
+		sessionItems := page.Locator(".session-item")
+		waitForMinCount(t, sessionItems, 1)
 
 		// find the session we created and click it
-		// session name in sidebar is derived from plan filename
-		sessionItems := page.Locator(".session-item")
 		count, err := sessionItems.Count()
 		require.NoError(t, err)
 
@@ -634,17 +560,33 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		}
 
 		if !sessionFound {
+			// session may appear after initial count - wait and retry
+			time.Sleep(longPollInterval)
+			count, err = sessionItems.Count()
+			require.NoError(t, err)
+
+			for i := 0; i < count; i++ {
+				session := sessionItems.Nth(i)
+				name := session.Locator(".session-name")
+				text, err := name.TextContent()
+				require.NoError(t, err)
+
+				if text == expectedSessionName {
+					err = session.Click()
+					require.NoError(t, err)
+					sessionFound = true
+					break
+				}
+			}
+		}
+
+		if !sessionFound {
 			t.Skip("could not find the test session in sidebar")
 		}
 
-		// wait for plan to attempt to load
-		time.Sleep(2 * time.Second)
-
-		// check plan panel shows "Plan not available" message
+		// wait for plan panel to show "Plan not available" message
 		planContent := page.Locator("#plan-content")
-		text, err := planContent.TextContent()
-		require.NoError(t, err)
-		assert.Contains(t, text, "Plan not available", "should show 'Plan not available' for missing plan")
+		waitForTextContains(t, planContent, "Plan not available")
 	})
 
 	t.Run("plan with no tasks shows appropriate message", func(t *testing.T) {
@@ -654,17 +596,14 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		expectedSessionName := "test-plan-malformed"
 		createSessionWithPlan(t, "malformed-plan-test", planName)
 
-		// wait for file system to settle
-		time.Sleep(500 * time.Millisecond)
-
 		page := newPage(t)
 		navigateToDashboard(t, page)
 
-		// wait for sessions to load
-		time.Sleep(3 * time.Second)
+		// wait for sessions to load (poll for the expected session to appear)
+		sessionItems := page.Locator(".session-item")
+		waitForMinCount(t, sessionItems, 1)
 
 		// find the session we created and click it
-		sessionItems := page.Locator(".session-item")
 		count, err := sessionItems.Count()
 		require.NoError(t, err)
 
@@ -684,16 +623,32 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		}
 
 		if !sessionFound {
+			// session may appear after initial count - wait and retry
+			time.Sleep(longPollInterval)
+			count, err = sessionItems.Count()
+			require.NoError(t, err)
+
+			for i := 0; i < count; i++ {
+				session := sessionItems.Nth(i)
+				name := session.Locator(".session-name")
+				text, err := name.TextContent()
+				require.NoError(t, err)
+
+				if text == expectedSessionName {
+					err = session.Click()
+					require.NoError(t, err)
+					sessionFound = true
+					break
+				}
+			}
+		}
+
+		if !sessionFound {
 			t.Skip("could not find the test session in sidebar")
 		}
 
-		// wait for plan to load
-		time.Sleep(2 * time.Second)
-
-		// check plan panel shows "No tasks in plan" message
+		// wait for plan panel to show "No tasks in plan" message
 		planContent := page.Locator("#plan-content")
-		text, err := planContent.TextContent()
-		require.NoError(t, err)
-		assert.Contains(t, text, "No tasks in plan", "should show 'No tasks in plan' for plan without tasks")
+		waitForTextContains(t, planContent, "No tasks in plan")
 	})
 }

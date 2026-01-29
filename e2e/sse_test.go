@@ -31,11 +31,10 @@ func TestSSEConnection(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// give time for SSE connection to establish and events to load
-	time.Sleep(2 * time.Second)
+	// wait for SSE connection to establish and sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// the dashboard should have loaded some initial content from the progress file
-	// check that we have some section headers (from the test data)
 	sections := page.Locator(".section-header")
 	count, err := sections.Count()
 	require.NoError(t, err)
@@ -48,11 +47,10 @@ func TestSSEInitialContentLoad(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear from SSE events
+	waitVisible(t, page, ".section-header")
 
 	t.Run("loads sections from progress file", func(t *testing.T) {
-		// check that sections exist (from test data: Task, Claude Review, Codex Review)
 		sections := page.Locator(".section-header")
 		count, err := sections.Count()
 		require.NoError(t, err)
@@ -60,7 +58,9 @@ func TestSSEInitialContentLoad(t *testing.T) {
 	})
 
 	t.Run("loads output lines from progress file", func(t *testing.T) {
-		// check that output lines exist
+		// wait for output lines to appear
+		waitVisible(t, page, ".output-line")
+
 		lines := page.Locator(".output-line")
 		count, err := lines.Count()
 		require.NoError(t, err)
@@ -72,8 +72,8 @@ func TestSectionCollapseExpand(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// find a section with content
 	section := page.Locator(".section-header").First()
@@ -92,20 +92,16 @@ func TestSectionCollapseExpand(t *testing.T) {
 	err = summary.Click()
 	require.NoError(t, err)
 
-	// wait a bit for state change
-	time.Sleep(300 * time.Millisecond)
-
-	// check state changed
-	newOpen := isDetailsOpen(section)
-	assert.NotEqual(t, initialOpen, newOpen, "section open state should toggle after click")
+	// wait for state to change
+	waitDetailsToggle(t, section, initialOpen)
 }
 
 func TestStatusBadgeUpdates(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear (indicates SSE events are loaded)
+	waitVisible(t, page, ".section-header")
 
 	// the status badge should exist
 	badge := page.Locator("#status-badge")
@@ -125,8 +121,8 @@ func TestExpandCollapseAllButtons(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// check we have some sections
 	sections := page.Locator(".section-header")
@@ -141,24 +137,16 @@ func TestExpandCollapseAllButtons(t *testing.T) {
 	err = collapseBtn.Click()
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// verify all sections are closed
-	for i := 0; i < count; i++ {
-		assert.False(t, isDetailsOpen(sections.Nth(i)), "section %d should be closed after collapse all", i)
-	}
+	// wait for all sections to be closed
+	waitAllDetailsState(t, sections, count, false)
 
 	// click expand all
 	expandBtn := page.Locator("#expand-all")
 	err = expandBtn.Click()
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// verify all sections are open
-	for i := 0; i < count; i++ {
-		assert.True(t, isDetailsOpen(sections.Nth(i)), "section %d should be open after expand all", i)
-	}
+	// wait for all sections to be open
+	waitAllDetailsState(t, sections, count, true)
 }
 
 func TestOutputPanelScrolling(t *testing.T) {
@@ -183,8 +171,8 @@ func TestSectionPhaseIndicators(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// check that sections have phase indicators
 	phases := page.Locator(".section-phase")
@@ -206,8 +194,8 @@ func TestSectionDuration(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// check that sections have duration elements
 	durations := page.Locator(".section-duration")
@@ -226,8 +214,8 @@ func TestSectionDetailsElement(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// find a section
 	section := page.Locator(".section-header").First()
@@ -254,40 +242,32 @@ func TestPhaseFilter(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for sections to appear
+	waitVisible(t, page, ".section-header")
 
 	// click Implementation tab
 	taskTab := page.Locator(".phase-tab[data-phase='task']")
 	err := taskTab.Click()
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
 	// verify task tab is active
-	class, err := taskTab.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "active")
+	waitForClass(t, taskTab, "active")
 
 	// click back to All tab
 	allTab := page.Locator(".phase-tab[data-phase='all']")
 	err = allTab.Click()
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
 	// verify all tab is active
-	allClass, err := allTab.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, allClass, "active")
+	waitForClass(t, allTab, "active")
 }
 
 func TestSearchFunctionality(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for content to load
+	waitVisible(t, page, ".section-header")
 
 	// get search input
 	searchInput := page.Locator("#search")
@@ -296,23 +276,15 @@ func TestSearchFunctionality(t *testing.T) {
 	err := searchInput.Fill("task")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// search should be applied (we can't easily verify filtering without knowing content)
-	value, err := searchInput.InputValue()
-	require.NoError(t, err)
-	assert.Equal(t, "task", value)
+	// wait for search value to be applied
+	waitInputValue(t, searchInput, "task")
 
 	// clear search with Escape
 	err = page.Keyboard().Press("Escape")
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
-
-	// search should be cleared
-	value, err = searchInput.InputValue()
-	require.NoError(t, err)
-	assert.Empty(t, value)
+	// wait for search to be cleared
+	waitInputValue(t, searchInput, "")
 }
 
 // TestErrorEventRendering verifies that error events from the progress file
@@ -321,16 +293,17 @@ func TestErrorEventRendering(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("error lines have correct data-type attribute", func(t *testing.T) {
 		// the test fixture (progress-test.txt) contains ERROR: lines
 		// these should be rendered with data-type="error"
 		errorLines := page.Locator(".output-line[data-type='error']")
+		waitForMinCount(t, errorLines, 1)
+
 		count, err := errorLines.Count()
 		require.NoError(t, err)
-		assert.GreaterOrEqual(t, count, 1, "should have at least one error line from test fixture")
 		t.Logf("Found %d error lines", count)
 	})
 
@@ -339,7 +312,13 @@ func TestErrorEventRendering(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// verify the error line content element exists and is visible
 		errorContent := page.Locator(".output-line[data-type='error'] .content").First()
@@ -388,38 +367,19 @@ func TestSignalEventRendering(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("COMPLETED signal shows success indicator", func(t *testing.T) {
 		// the test fixture (progress-test.txt) ends with <<<RALPHEX:ALL_TASKS_DONE>>>
 		// which is normalized to COMPLETED signal
 		badge := page.Locator("#status-badge")
 
-		// wait for badge to show COMPLETED (SSE stream needs time to process all events)
-		// use Playwright's built-in waiting with a condition
-		err := badge.WaitFor(playwright.LocatorWaitForOptions{
-			State:   playwright.WaitForSelectorStateVisible,
-			Timeout: playwright.Float(15000),
-		})
-		require.NoError(t, err, "badge should be visible")
-
-		// poll until badge shows COMPLETED or timeout
-		var text string
-		for i := 0; i < 100; i++ { // 10 second timeout (100 * 100ms)
-			text, _ = badge.TextContent()
-			if text == "COMPLETED" {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		assert.Equal(t, "COMPLETED", text, "badge should show COMPLETED for ALL_TASKS_DONE signal")
+		// wait for badge to show COMPLETED
+		waitForText(t, badge, "COMPLETED")
 
 		// verify badge has completed class
-		class, err := badge.GetAttribute("class")
-		require.NoError(t, err)
-		assert.Contains(t, class, "completed", "badge should have 'completed' CSS class")
+		waitForClass(t, badge, "completed")
 	})
 
 	t.Run("signal stops elapsed timer", func(t *testing.T) {
@@ -436,7 +396,7 @@ func TestSignalEventRendering(t *testing.T) {
 		time1, err := elapsedEl.TextContent()
 		require.NoError(t, err)
 
-		// wait a moment and check again
+		// wait and check again - timer should be stopped after terminal signal
 		time.Sleep(1500 * time.Millisecond)
 
 		time2, err := elapsedEl.TextContent()
@@ -451,7 +411,13 @@ func TestSignalEventRendering(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// look for completion message in output
 		// the JS renders "execution completed successfully" for COMPLETED signal
@@ -483,8 +449,8 @@ func TestSignalFailedIndicator(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	// verify badge element exists and can accept failed class
 	badge := page.Locator("#status-badge")
@@ -508,25 +474,8 @@ func TestReviewDoneSignalHandling(t *testing.T) {
 	// so we verify the badge shows COMPLETED (the final terminal state)
 	badge := page.Locator("#status-badge")
 
-	// wait for badge to be visible first
-	err := badge.WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(15000),
-	})
-	require.NoError(t, err, "badge should be visible")
-
-	// poll until badge shows COMPLETED or timeout (SSE processing is async)
-	var text string
-	for i := 0; i < 100; i++ { // 10 second timeout (100 * 100ms)
-		text, _ = badge.TextContent()
-		if text == "COMPLETED" {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-
-	// the badge should show COMPLETED since ALL_TASKS_DONE comes after REVIEW_DONE
-	assert.Equal(t, "COMPLETED", text, "badge should show terminal state after all signals processed")
+	// wait for badge to show COMPLETED
+	waitForText(t, badge, "COMPLETED")
 }
 
 // TestTaskBoundaryRendering verifies that task iteration headers are rendered
@@ -535,8 +484,8 @@ func TestTaskBoundaryRendering(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("task iteration headers render as section headers", func(t *testing.T) {
 		// the test fixture (progress-test.txt) contains task iteration markers
@@ -559,7 +508,13 @@ func TestTaskBoundaryRendering(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// find task sections and verify they have task-related titles
 		taskSections := page.Locator(".section-header[data-phase='task']")
@@ -609,10 +564,9 @@ func TestTaskBoundaryRendering(t *testing.T) {
 		// click the summary to toggle
 		err = summary.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
 
-		newOpen := isDetailsOpen(taskSection)
-		assert.NotEqual(t, initialOpen, newOpen, "task section should toggle open/closed on click")
+		// wait for state to change
+		waitDetailsToggle(t, taskSection, initialOpen)
 	})
 }
 
@@ -622,8 +576,8 @@ func TestIterationBoundaryRendering(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("Claude review iteration headers render correctly", func(t *testing.T) {
 		// the test fixture contains Claude review sections
@@ -680,7 +634,13 @@ func TestIterationBoundaryRendering(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// check review sections for iteration numbers
 		reviewSections := page.Locator(".section-header[data-phase='review']")
@@ -761,16 +721,17 @@ func TestWarnEventRendering(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("warn lines have correct data-type attribute", func(t *testing.T) {
 		// the test fixture (progress-test.txt) contains WARN: lines
 		// these should be rendered with data-type="warn"
 		warnLines := page.Locator(".output-line[data-type='warn']")
+		waitForMinCount(t, warnLines, 1)
+
 		count, err := warnLines.Count()
 		require.NoError(t, err)
-		assert.GreaterOrEqual(t, count, 1, "should have at least one warn line from test fixture")
 		t.Logf("Found %d warn lines", count)
 	})
 
@@ -779,7 +740,13 @@ func TestWarnEventRendering(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// verify the warn line content element exists and is visible
 		warnContent := page.Locator(".output-line[data-type='warn'] .content").First()
@@ -828,15 +795,21 @@ func TestAutoScrollOnNewContent(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("scroll position updates when content loads and user at bottom", func(t *testing.T) {
 		// expand all sections to ensure we have scrollable content
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// get the output panel and verify it has content
 		outputPanel := page.Locator(".output-panel")
@@ -856,23 +829,30 @@ func TestAutoScrollOnNewContent(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// scroll to top of the output panel to simulate user scrolling up
 		outputPanel := page.Locator(".output-panel")
 		_, err = outputPanel.Evaluate("el => { el.scrollTop = 0; }", nil)
 		require.NoError(t, err)
-		time.Sleep(200 * time.Millisecond)
 
-		// get the scroll position after scrolling to top
-		scrollTopResult, err := outputPanel.Evaluate("el => el.scrollTop", nil)
-		require.NoError(t, err)
-		scrollTop := toFloat64(scrollTopResult)
+		// wait for scroll position to be at top
+		require.Eventually(t, func() bool {
+			result, err := outputPanel.Evaluate("el => el.scrollTop", nil)
+			if err != nil {
+				return false
+			}
+			return toFloat64(result) <= 10
+		}, pollTimeout, pollInterval, "should be scrolled to top")
 
-		// verify we're at the top
-		assert.LessOrEqual(t, scrollTop, float64(10), "should be scrolled to top")
-
-		// wait a moment and verify position is preserved (not auto-scrolled to bottom)
+		// wait and verify position is preserved (not auto-scrolled to bottom)
+		// this is an intentional time-based check: we verify no change over time
 		time.Sleep(500 * time.Millisecond)
 
 		scrollTopAfter, err := outputPanel.Evaluate("el => el.scrollTop", nil)
@@ -890,15 +870,21 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load and SSE events
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("button appears when scrolled away from bottom", func(t *testing.T) {
 		// expand all sections to ensure we have scrollable content
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// scroll to top of the output panel
 		outputPanel := page.Locator(".output-panel")
@@ -908,15 +894,8 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 		// trigger scroll event to update UI state
 		_, err = outputPanel.Evaluate("el => el.dispatchEvent(new Event('scroll'))", nil)
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
 
-		// check if scroll indicator becomes visible
-		indicator := page.Locator("#scroll-indicator")
-		hasVisibleClass, err := indicator.Evaluate("el => el.classList.contains('visible')", nil)
-		require.NoError(t, err)
-
-		// the indicator should be visible when not at bottom
-		// (but only if there's enough content to scroll)
+		// check if there's enough content to scroll
 		scrollHeight, err := outputPanel.Evaluate("el => el.scrollHeight", nil)
 		require.NoError(t, err)
 		clientHeight, err := outputPanel.Evaluate("el => el.clientHeight", nil)
@@ -927,9 +906,8 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 
 		if scrollHeightNum > clientHeightNum+50 {
 			// there's content to scroll, indicator should be visible
-			visible, ok := hasVisibleClass.(bool)
-			require.True(t, ok, "expected bool from classList.contains evaluation")
-			assert.True(t, visible, "scroll indicator should be visible when scrolled up")
+			indicator := page.Locator("#scroll-indicator")
+			waitForScrollIndicator(t, indicator, true)
 		} else {
 			t.Log("not enough content to require scrolling, skipping indicator visibility check")
 		}
@@ -940,7 +918,13 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		outputPanel := page.Locator(".output-panel")
 
@@ -960,30 +944,35 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 		// scroll to top
 		_, err = outputPanel.Evaluate("el => { el.scrollTop = 0; }", nil)
 		require.NoError(t, err)
-		time.Sleep(200 * time.Millisecond)
 
-		// verify we're at top
-		scrollTopBefore, err := outputPanel.Evaluate("el => el.scrollTop", nil)
-		require.NoError(t, err)
-		assert.LessOrEqual(t, toFloat64(scrollTopBefore), float64(10), "should be at top before clicking button")
+		// wait for scroll position to be at top
+		require.Eventually(t, func() bool {
+			result, err := outputPanel.Evaluate("el => el.scrollTop", nil)
+			if err != nil {
+				return false
+			}
+			return toFloat64(result) <= 10
+		}, pollTimeout, pollInterval, "should be at top before clicking button")
 
 		// click scroll-to-bottom button
 		scrollBtn := page.Locator("#scroll-to-bottom")
 		err = scrollBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
 
-		// verify we're now at bottom
-		scrollTopAfter, err := outputPanel.Evaluate("el => el.scrollTop", nil)
-		require.NoError(t, err)
-		scrollMaxResult, err := outputPanel.Evaluate("el => el.scrollHeight - el.clientHeight", nil)
-		require.NoError(t, err)
-
-		scrollTopAfterNum := toFloat64(scrollTopAfter)
-		scrollMaxNum := toFloat64(scrollMaxResult)
-
-		// should be within 50px of bottom
-		assert.InDelta(t, scrollMaxNum, scrollTopAfterNum, 50, "should be scrolled to bottom after clicking button")
+		// wait for scroll position to reach bottom
+		require.Eventually(t, func() bool {
+			scrollTop, err := outputPanel.Evaluate("el => el.scrollTop", nil)
+			if err != nil {
+				return false
+			}
+			scrollMax, err := outputPanel.Evaluate("el => el.scrollHeight - el.clientHeight", nil)
+			if err != nil {
+				return false
+			}
+			topNum := toFloat64(scrollTop)
+			maxNum := toFloat64(scrollMax)
+			return maxNum-topNum < 50
+		}, pollTimeout, pollInterval, "should be scrolled to bottom after clicking button")
 	})
 
 	t.Run("button hides when at bottom", func(t *testing.T) {
@@ -991,7 +980,13 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 		expandBtn := page.Locator("#expand-all")
 		err := expandBtn.Click()
 		require.NoError(t, err)
-		time.Sleep(300 * time.Millisecond)
+
+		// wait for sections to expand
+		sections := page.Locator(".section-header")
+		sectionCount, _ := sections.Count()
+		if sectionCount > 0 {
+			waitAllDetailsState(t, sections, sectionCount, true)
+		}
 
 		// scroll to bottom programmatically (more reliable than button click)
 		outputPanel := page.Locator(".output-panel")
@@ -1001,17 +996,10 @@ func TestScrollToBottomButtonBehavior(t *testing.T) {
 		// trigger scroll event to update UI state
 		_, err = outputPanel.Evaluate("el => el.dispatchEvent(new Event('scroll'))", nil)
 		require.NoError(t, err)
-		time.Sleep(200 * time.Millisecond)
 
-		// check if scroll indicator is hidden
+		// wait for indicator to be hidden
 		indicator := page.Locator("#scroll-indicator")
-		hasVisibleClass, err := indicator.Evaluate("el => el.classList.contains('visible')", nil)
-		require.NoError(t, err)
-
-		// indicator should not be visible when at bottom
-		hidden, ok := hasVisibleClass.(bool)
-		require.True(t, ok, "expected bool from classList.contains evaluation")
-		assert.False(t, hidden, "scroll indicator should be hidden when at bottom")
+		waitForScrollIndicator(t, indicator, false)
 	})
 }
 
@@ -1036,31 +1024,25 @@ func TestSSEReconnectionBehavior(t *testing.T) {
 		require.NoError(t, err, "status badge should be visible")
 
 		// poll until badge shows a valid status (events have been processed)
-		var text string
 		validStatuses := []string{"TASK", "REVIEW", "CODEX", "COMPLETED", "FAILED"}
-		for i := 0; i < 100; i++ { // 10 second timeout
-			text, _ = badge.TextContent()
+		require.Eventually(t, func() bool {
+			text, err := badge.TextContent()
+			if err != nil {
+				return false
+			}
 			for _, valid := range validStatuses {
 				if text == valid {
 					t.Logf("Status badge shows: %q after SSE events loaded", text)
-					return
+					return true
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
-		}
-
-		// if no valid status found, check if badge has any content
-		// (empty badge is valid for initial state before events)
-		if text == "" {
-			t.Log("Status badge is empty (no events processed yet or waiting for first event)")
-		} else {
-			t.Logf("Status badge shows unexpected value: %q", text)
-		}
+			return false
+		}, longPollTimeout, pollInterval, "badge should show a valid status")
 	})
 
 	t.Run("SSE connection delivers events that populate output", func(t *testing.T) {
-		// wait for SSE to deliver events
-		time.Sleep(2 * time.Second)
+		// wait for output content to appear
+		waitVisible(t, page, "#output > *")
 
 		// verify output has content (events were received via SSE)
 		outputDiv := page.Locator("#output")
@@ -1070,8 +1052,8 @@ func TestSSEReconnectionBehavior(t *testing.T) {
 	})
 
 	t.Run("multiple sections loaded indicates successful SSE streaming", func(t *testing.T) {
-		// wait for events to load
-		time.Sleep(2 * time.Second)
+		// wait for sections to appear
+		waitVisible(t, page, ".section-header")
 
 		// check that sections were created from SSE events
 		sections := page.Locator(".section-header")
@@ -1090,8 +1072,8 @@ func TestSSEConnectionLossHandling(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for SSE events to load
+	waitVisible(t, page, ".section-header")
 
 	t.Run("UI continues to function after initial load", func(t *testing.T) {
 		// verify basic UI elements are still responsive after SSE setup
@@ -1113,10 +1095,9 @@ func TestSSEConnectionLossHandling(t *testing.T) {
 
 			err = summary.Click()
 			require.NoError(t, err)
-			time.Sleep(200 * time.Millisecond)
 
-			newOpen := isDetailsOpen(section)
-			assert.NotEqual(t, initialOpen, newOpen, "section should toggle, indicating UI is responsive")
+			// wait for state to change
+			waitDetailsToggle(t, section, initialOpen)
 		}
 	})
 
@@ -1147,28 +1128,24 @@ func TestSSEConnectionLossHandling(t *testing.T) {
 		// verify the badge reflects this terminal state
 		badge := page.Locator("#status-badge")
 
-		// poll until badge shows COMPLETED
-		var text string
-		for i := 0; i < 50; i++ {
-			text, _ = badge.TextContent()
-			if text == "COMPLETED" || text == "FAILED" {
-				break
+		// wait for badge to show terminal state
+		require.Eventually(t, func() bool {
+			text, err := badge.TextContent()
+			if err != nil {
+				return false
 			}
-			time.Sleep(100 * time.Millisecond)
-		}
+			return text == "COMPLETED" || text == "FAILED"
+		}, longPollTimeout, pollInterval, "badge should show terminal state")
+
+		text, err := badge.TextContent()
+		require.NoError(t, err)
 
 		if text == "COMPLETED" {
 			// verify badge has completed class
-			class, err := badge.GetAttribute("class")
-			require.NoError(t, err)
-			assert.Contains(t, class, "completed", "badge should have completed CSS class for terminal state")
+			waitForClass(t, badge, "completed")
 		} else if text == "FAILED" {
 			// verify badge has failed class
-			class, err := badge.GetAttribute("class")
-			require.NoError(t, err)
-			assert.Contains(t, class, "failed", "badge should have failed CSS class for terminal state")
-		} else {
-			t.Logf("Badge shows: %q (session may not have terminal signal)", text)
+			waitForClass(t, badge, "failed")
 		}
 	})
 }

@@ -5,9 +5,7 @@ package e2e
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,28 +44,23 @@ func TestSessionSidebarDiscovery(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sessions to load
-	time.Sleep(2 * time.Second)
+	// wait for at least one session to appear
+	items := page.Locator(".session-item")
+	waitForMinCount(t, items, 1)
 
 	// session list should exist and have content
 	sessionList := page.Locator("#session-list")
 	visible, err := sessionList.IsVisible()
 	require.NoError(t, err)
 	assert.True(t, visible, "session list should be visible")
-
-	// should have at least one session (the test-plan session)
-	items := page.Locator(".session-item")
-	count, err := items.Count()
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, count, 1, "should have at least one session")
 }
 
 func TestSessionListContent(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sessions to load
-	time.Sleep(2 * time.Second)
+	// wait for at least one session to appear
+	waitForMinCount(t, page.Locator(".session-item"), 1)
 
 	// find the first session item
 	sessionItem := page.Locator(".session-item").First()
@@ -98,11 +91,10 @@ func TestSessionSelection(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sessions to load
-	time.Sleep(2 * time.Second)
-
-	// find sessions
+	// wait for at least one session to appear
 	sessionItems := page.Locator(".session-item")
+	waitForMinCount(t, sessionItems, 1)
+
 	count, err := sessionItems.Count()
 	require.NoError(t, err)
 
@@ -112,17 +104,15 @@ func TestSessionSelection(t *testing.T) {
 
 	// first session should be selected by default
 	firstSession := sessionItems.First()
-	class, err := firstSession.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "selected", "first session should be selected")
+	waitForClass(t, firstSession, "selected")
 }
 
 func TestSessionStateIndicator(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sessions to load
-	time.Sleep(2 * time.Second)
+	// wait for at least one session to appear
+	waitForMinCount(t, page.Locator(".session-item"), 1)
 
 	// find session indicator
 	indicator := page.Locator(".session-indicator").First()
@@ -138,7 +128,7 @@ func TestSessionStateIndicator(t *testing.T) {
 	require.NoError(t, err)
 
 	// verify indicator has a valid state class (active or completed)
-	hasValidState := strings.Contains(class, "active") || strings.Contains(class, "completed")
+	hasValidState := hasClass(class, "active") || hasClass(class, "completed")
 	assert.True(t, hasValidState, "indicator should have 'active' or 'completed' class, got: %q", class)
 }
 
@@ -152,62 +142,43 @@ func TestSidebarToggle(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, visible, "sidebar should be visible initially")
 
+	body := page.Locator("body")
+
 	// click toggle button
 	toggle := page.Locator("#sidebar-toggle")
 	err = toggle.Click()
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// body should have collapsed class
-	body := page.Locator("body")
-	class, err := body.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "sidebar-collapsed", "body should have sidebar-collapsed class")
+	// wait for body to have collapsed class
+	waitForClass(t, body, "sidebar-collapsed")
 
 	// click toggle again to restore
 	err = toggle.Click()
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// collapsed class should be removed
-	class, err = body.GetAttribute("class")
-	require.NoError(t, err)
-	// class may be empty or not contain sidebar-collapsed
-	if class != "" {
-		assert.NotContains(t, class, "sidebar-collapsed", "sidebar-collapsed should be removed")
-	}
+	// wait for collapsed class to be removed
+	waitForClassGone(t, body, "sidebar-collapsed")
 }
 
 func TestSidebarKeyboardShortcut(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
+	body := page.Locator("body")
+
 	// press 's' to toggle sidebar
 	err := page.Keyboard().Press("s")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// body should have collapsed class
-	body := page.Locator("body")
-	class, err := body.GetAttribute("class")
-	require.NoError(t, err)
-	assert.Contains(t, class, "sidebar-collapsed", "pressing 's' should collapse sidebar")
+	// wait for body to have collapsed class
+	waitForClass(t, body, "sidebar-collapsed")
 
 	// press 's' again to restore
 	err = page.Keyboard().Press("s")
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// collapsed class should be removed
-	class, err = body.GetAttribute("class")
-	require.NoError(t, err)
-	if class != "" {
-		assert.NotContains(t, class, "sidebar-collapsed", "pressing 's' again should expand sidebar")
-	}
+	// wait for collapsed class to be removed
+	waitForClassGone(t, body, "sidebar-collapsed")
 }
 
 func TestViewToggleButton(t *testing.T) {
@@ -224,9 +195,7 @@ func TestViewToggleButton(t *testing.T) {
 	err = viewToggle.Click()
 	require.NoError(t, err)
 
-	time.Sleep(300 * time.Millisecond)
-
-	// button should have grouped class after click
+	// wait for grouped class to appear (or verify state changed)
 	class, err := viewToggle.GetAttribute("class")
 	require.NoError(t, err)
 	t.Logf("View toggle class after click: %s", class)
@@ -236,8 +205,8 @@ func TestSessionDiscoveryOnNewFile(t *testing.T) {
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for initial load
-	time.Sleep(2 * time.Second)
+	// wait for initial sessions to load
+	waitForMinCount(t, page.Locator(".session-item"), 1)
 
 	// count initial sessions
 	initialItems := page.Locator(".session-item")
@@ -248,16 +217,9 @@ func TestSessionDiscoveryOnNewFile(t *testing.T) {
 	newSessionName := "e2e-discovery-test"
 	createTestSession(t, newSessionName)
 
-	// wait for session polling to discover it (5 second poll interval + some margin)
-	time.Sleep(7 * time.Second)
-
-	// count sessions again
+	// wait for session polling to discover the new session
 	newItems := page.Locator(".session-item")
-	newCount, err := newItems.Count()
-	require.NoError(t, err)
-
-	// should have one more session
-	assert.Equal(t, initialCount+1, newCount, "should discover new session")
+	waitForCount(t, newItems, initialCount+1)
 }
 
 func TestSessionSwitchingUpdatesHeader(t *testing.T) {
@@ -265,17 +227,13 @@ func TestSessionSwitchingUpdatesHeader(t *testing.T) {
 	secondSessionName := "second-session"
 	createTestSession(t, secondSessionName)
 
-	// wait for file system to settle
-	time.Sleep(500 * time.Millisecond)
-
 	page := newPage(t)
 	navigateToDashboard(t, page)
 
-	// wait for sessions to load
-	time.Sleep(3 * time.Second)
-
-	// find sessions
+	// wait for at least 2 sessions to appear
 	sessionItems := page.Locator(".session-item")
+	waitForMinCount(t, sessionItems, 2)
+
 	count, err := sessionItems.Count()
 	require.NoError(t, err)
 
@@ -295,7 +253,7 @@ func TestSessionSwitchingUpdatesHeader(t *testing.T) {
 		session := sessionItems.Nth(i)
 		class, err := session.GetAttribute("class")
 		require.NoError(t, err)
-		if class == "" || !strings.Contains(class, "selected") {
+		if class == "" || !hasClass(class, "selected") {
 			// click the unselected session
 			err = session.Click()
 			require.NoError(t, err)
@@ -308,8 +266,19 @@ func TestSessionSwitchingUpdatesHeader(t *testing.T) {
 		t.Skip("could not find unselected session")
 	}
 
-	// wait for session to switch
-	time.Sleep(2 * time.Second)
+	// wait for the clicked session to become selected
+	require.Eventually(t, func() bool {
+		for i := 0; i < count; i++ {
+			session := sessionItems.Nth(i)
+			class, _ := session.GetAttribute("class")
+			if hasClass(class, "selected") {
+				// check if plan name has been read (session switch happened)
+				newPlan, _ := planName.TextContent()
+				return newPlan != "" && newPlan != initialPlan
+			}
+		}
+		return false
+	}, longPollTimeout, pollInterval, "session switch should update header")
 
 	// check if plan name changed (it may or may not, depending on the session)
 	newPlan, err := planName.TextContent()
