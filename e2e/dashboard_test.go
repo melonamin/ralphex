@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -536,53 +535,8 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		page := newPage(t)
 		navigateToDashboard(t, page)
 
-		// wait for sessions to load (poll for the expected session to appear)
-		sessionItems := page.Locator(".session-item")
-		waitForMinCount(t, sessionItems, 1)
-
-		// find the session we created and click it
-		count, err := sessionItems.Count()
-		require.NoError(t, err)
-
-		var sessionFound bool
-		for i := 0; i < count; i++ {
-			session := sessionItems.Nth(i)
-			name := session.Locator(".session-name")
-			text, err := name.TextContent()
-			require.NoError(t, err)
-
-			if text == expectedSessionName {
-				err = session.Click()
-				require.NoError(t, err)
-				sessionFound = true
-				break
-			}
-		}
-
-		if !sessionFound {
-			// session may appear after initial count - wait and retry
-			time.Sleep(longPollInterval)
-			count, err = sessionItems.Count()
-			require.NoError(t, err)
-
-			for i := 0; i < count; i++ {
-				session := sessionItems.Nth(i)
-				name := session.Locator(".session-name")
-				text, err := name.TextContent()
-				require.NoError(t, err)
-
-				if text == expectedSessionName {
-					err = session.Click()
-					require.NoError(t, err)
-					sessionFound = true
-					break
-				}
-			}
-		}
-
-		if !sessionFound {
-			t.Skip("could not find the test session in sidebar")
-		}
+		// poll for the session to appear and click it
+		clickSessionByName(t, page, expectedSessionName)
 
 		// wait for plan panel to show "Plan not available" message
 		planContent := page.Locator("#plan-content")
@@ -599,53 +553,8 @@ func TestPlanParsingEdgeCases(t *testing.T) {
 		page := newPage(t)
 		navigateToDashboard(t, page)
 
-		// wait for sessions to load (poll for the expected session to appear)
-		sessionItems := page.Locator(".session-item")
-		waitForMinCount(t, sessionItems, 1)
-
-		// find the session we created and click it
-		count, err := sessionItems.Count()
-		require.NoError(t, err)
-
-		var sessionFound bool
-		for i := 0; i < count; i++ {
-			session := sessionItems.Nth(i)
-			name := session.Locator(".session-name")
-			text, err := name.TextContent()
-			require.NoError(t, err)
-
-			if text == expectedSessionName {
-				err = session.Click()
-				require.NoError(t, err)
-				sessionFound = true
-				break
-			}
-		}
-
-		if !sessionFound {
-			// session may appear after initial count - wait and retry
-			time.Sleep(longPollInterval)
-			count, err = sessionItems.Count()
-			require.NoError(t, err)
-
-			for i := 0; i < count; i++ {
-				session := sessionItems.Nth(i)
-				name := session.Locator(".session-name")
-				text, err := name.TextContent()
-				require.NoError(t, err)
-
-				if text == expectedSessionName {
-					err = session.Click()
-					require.NoError(t, err)
-					sessionFound = true
-					break
-				}
-			}
-		}
-
-		if !sessionFound {
-			t.Skip("could not find the test session in sidebar")
-		}
+		// poll for the session to appear and click it
+		clickSessionByName(t, page, expectedSessionName)
 
 		// wait for plan panel to show "No tasks in plan" message
 		planContent := page.Locator("#plan-content")

@@ -498,6 +498,36 @@ func waitForScrollIndicator(t *testing.T, indicator playwright.Locator, visible 
 	}, pollTimeout, pollInterval, "scroll indicator visible should be %v", visible)
 }
 
+// clickSessionByName polls the session sidebar until a session with the given name
+// appears, then clicks it. Returns true if the session was found and clicked.
+func clickSessionByName(t *testing.T, page playwright.Page, name string) bool {
+	t.Helper()
+	var clicked bool
+	require.Eventually(t, func() bool {
+		items := page.Locator(".session-item")
+		count, err := items.Count()
+		if err != nil || count == 0 {
+			return false
+		}
+		for i := 0; i < count; i++ {
+			nameEl := items.Nth(i).Locator(".session-name")
+			text, err := nameEl.TextContent()
+			if err != nil {
+				continue
+			}
+			if text == name {
+				if err := items.Nth(i).Click(); err != nil {
+					return false
+				}
+				clicked = true
+				return true
+			}
+		}
+		return false
+	}, longPollTimeout, longPollInterval, "session %q should appear in sidebar", name)
+	return clicked
+}
+
 // TestDashboardSmoke verifies the server is running and page loads.
 func TestDashboardSmoke(t *testing.T) {
 	page := newPage(t)
