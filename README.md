@@ -49,7 +49,7 @@ ralphex solves both problems. Each task executes in a fresh Claude Code session 
 - **Automatic commits** - commits after each task and review fix
 - **Streaming output** - real-time progress with timestamps and colors
 - **Progress logging** - detailed execution logs for debugging
-- **Web dashboard** - browser-based real-time view with `--serve` flag
+- **Web dashboard** - watch-only dashboard with `--serve` (monitors progress files)
 - **Multiple modes** - full execution, review-only, codex-only, or plan creation
 
 ## Quick Start
@@ -183,7 +183,7 @@ Download the appropriate binary from [releases](https://github.com/umputun/ralph
 
 ## Usage
 
-**Note:** ralphex must be run from the repository root directory (where `.git` is located).
+**Note:** plan execution must run from the repository root directory (where `.git` is located). The watch-only dashboard (`--serve`) can run from any directory.
 
 ```bash
 # execute plan with task loop + reviews
@@ -204,11 +204,11 @@ ralphex --plan "add user authentication"
 # with custom max iterations
 ralphex --max-iterations=100 docs/plans/feature.md
 
-# with web dashboard
-ralphex --serve docs/plans/feature.md
+# start watch-only web dashboard (watches current directory)
+ralphex --serve
 
-# web dashboard on custom port
-ralphex --serve --port 3000 docs/plans/feature.md
+# watch multiple directories
+ralphex --serve --watch ~/projects/frontend --watch ~/projects/backend
 ```
 
 ### Options
@@ -219,7 +219,7 @@ ralphex --serve --port 3000 docs/plans/feature.md
 | `-r, --review` | Skip task execution, run full review pipeline | false |
 | `-c, --codex-only` | Skip tasks and first review, run only codex loop | false |
 | `--plan` | Create plan interactively (provide description) | - |
-| `-s, --serve` | Start web dashboard for real-time streaming | false |
+| `-s, --serve` | Start watch-only web dashboard (monitors progress files; cannot be combined with plan execution) | false |
 | `-p, --port` | Web dashboard port (used with `--serve`) | 8080 |
 | `-w, --watch` | Directories to watch for progress files (repeatable) | - |
 | `-d, --debug` | Enable debug logging | false |
@@ -474,27 +474,39 @@ Agents define *what* to check (review instructions). Prompts define *how* the wo
 
 ## Web Dashboard
 
-The `--serve` flag starts a browser-based dashboard for real-time monitoring of plan execution.
+The `--serve` flag starts a watch-only dashboard that monitors progress files. It does **not** execute plans.
+
+### Mental Model
+
+- `--serve` = dashboard only (never runs plans).
+- Running a plan is always a separate command without `--serve`.
+- The dashboard shows any sessions whose progress files appear under the watched directories.
+
+Typical workflow is two terminals: one for `--serve`, one for running plans.
 
 ```bash
-ralphex --serve docs/plans/feature.md
+# terminal 1: start dashboard (watches current directory)
+ralphex --serve
 # web dashboard: http://localhost:8080
+
+# terminal 2: run a plan (dashboard picks it up automatically)
+ralphex docs/plans/feature.md
 ```
 
 ### Features
 
-- **Real-time streaming** - SSE connection for live output updates
+- **Real-time updates** - file watcher streams output as it is written
 - **Phase navigation** - filter by All/Task/Review/Codex phases
 - **Collapsible sections** - organized output with expand/collapse
 - **Text search** - find text with highlighting (keyboard: `/` to focus, `Escape` to clear)
 - **Auto-scroll** - follows output, click to disable
 - **Late-join support** - new clients receive full history
 
-The dashboard uses a dark theme with phase-specific colors matching terminal output. All file and stdout logging continues unchanged when using `--serve`.
+The dashboard uses a dark theme with phase-specific colors matching terminal output.
 
-### Multi-Session Mode
+### Watch Scope
 
-The `--watch` flag enables monitoring multiple ralphex sessions simultaneously:
+By default, `--serve` watches the current directory. Use `--watch` to expand the scope:
 
 ```bash
 # watch specific directories for progress files
