@@ -33,6 +33,64 @@ func TestNewServer(t *testing.T) {
 	assert.Equal(t, session, srv.Session())
 }
 
+func TestServer_HandlePing(t *testing.T) {
+	session := NewSession("test", "/tmp/test.txt")
+	defer session.Close()
+	srv, err := NewServer(ServerConfig{Port: 0}, session)
+	require.NoError(t, err)
+
+	t.Run("GET returns pong", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/ping", http.NoBody)
+		w := httptest.NewRecorder()
+
+		srv.handlePing(w, req)
+
+		resp := w.Result()
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+		assert.Equal(t, "no-cache, no-store, must-revalidate", resp.Header.Get("Cache-Control"))
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "pong", string(body))
+	})
+
+	t.Run("HEAD returns headers only", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodHead, "/ping", http.NoBody)
+		w := httptest.NewRecorder()
+
+		srv.handlePing(w, req)
+
+		resp := w.Result()
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		assert.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+		assert.Equal(t, "no-cache, no-store, must-revalidate", resp.Header.Get("Cache-Control"))
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Empty(t, body, "HEAD should return no body")
+	})
+
+	t.Run("rejects non-GET/HEAD methods", func(t *testing.T) {
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, "/ping", http.NoBody)
+			w := httptest.NewRecorder()
+
+			srv.handlePing(w, req)
+
+			resp := w.Result()
+			resp.Body.Close()
+
+			assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, "method %s should be rejected", method)
+			assert.Equal(t, "GET, HEAD", resp.Header.Get("Allow"))
+		}
+	})
+}
+
 func TestServer_HandleIndex(t *testing.T) {
 	session := NewSession("test", "/tmp/test.txt")
 	defer session.Close()

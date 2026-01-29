@@ -77,6 +77,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// register routes
 	mux.HandleFunc("/", s.handleIndex)
+	mux.HandleFunc("/ping", s.handlePing)
 	mux.HandleFunc("/events", s.handleEvents)
 	mux.HandleFunc("/api/plan", s.handlePlan)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
@@ -148,9 +149,24 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.tmpl.Execute(w, data); err != nil {
-		log.Printf("[ERROR] template execution: %v", err)
 		http.Error(w, "template execution error", http.StatusInternalServerError)
 		return
+	}
+}
+
+// handlePing returns a simple OK response for health checks.
+func (s *Server) handlePing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = w.Write([]byte("pong"))
 	}
 }
 
@@ -315,17 +331,14 @@ func (s *Server) getSession(r *http.Request) (*Session, error) {
 
 // SessionInfo represents session data for the API response.
 type SessionInfo struct {
-	ID    string       `json:"id"`
-	State SessionState `json:"state"`
-	// dir is the short display name for the project (last path segment of session directory).
-	Dir string `json:"dir"`
-	// DirPath is the full filesystem path to the session directory (used for grouping and copy-to-clipboard).
-	DirPath      string    `json:"dirPath,omitempty"`
-	PlanPath     string    `json:"planPath,omitempty"`
-	Branch       string    `json:"branch,omitempty"`
-	Mode         string    `json:"mode,omitempty"`
-	StartTime    time.Time `json:"startTime"`
-	LastModified time.Time `json:"lastModified"`
+	ID           string       `json:"id"`
+	State        SessionState `json:"state"`
+	Dir          string       `json:"dir"`
+	PlanPath     string       `json:"planPath,omitempty"`
+	Branch       string       `json:"branch,omitempty"`
+	Mode         string       `json:"mode,omitempty"`
+	StartTime    time.Time    `json:"startTime"`
+	LastModified time.Time    `json:"lastModified"`
 }
 
 // handleSessions returns a list of all discovered sessions.
@@ -354,20 +367,10 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	infos := make([]SessionInfo, 0, len(sessions))
 	for _, session := range sessions {
 		meta := session.GetMetadata()
-		var dirPath string
-		if absPath, err := filepath.Abs(session.Path); err == nil {
-			dirPath = filepath.Dir(absPath)
-		} else {
-			dirPath = filepath.Dir(session.Path)
-			if dirPath == "." || dirPath == ".." {
-				dirPath = ""
-			}
-		}
 		infos = append(infos, SessionInfo{
 			ID:           session.ID,
 			State:        session.GetState(),
 			Dir:          extractProjectDir(session.Path),
-			DirPath:      dirPath,
 			PlanPath:     meta.PlanPath,
 			Branch:       meta.Branch,
 			Mode:         meta.Mode,

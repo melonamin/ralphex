@@ -26,6 +26,7 @@ pkg/plan/           # plan file selection and manipulation
 pkg/processor/      # orchestration loop, prompts, signals
 pkg/progress/       # timestamped logging with color
 pkg/web/            # web dashboard, SSE streaming, session management
+e2e/                # playwright e2e tests for web dashboard
 docs/plans/         # plan files location
 ```
 
@@ -157,6 +158,23 @@ project/
 go test ./...           # run all tests
 go test -cover ./...    # with coverage
 ```
+
+### Web UI E2E Tests
+
+Playwright-based e2e tests for the web dashboard are in `e2e/` directory:
+
+```bash
+# install playwright browsers (first time only)
+go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+
+# run web ui e2e tests
+go test -tags=e2e -timeout=10m -count=1 -v ./e2e/...
+
+# run with visible browser (for debugging)
+E2E_HEADLESS=false go test -tags=e2e -timeout=10m -count=1 -v ./e2e/...
+```
+
+Tests cover: dashboard loading, SSE connection, phase sections, plan panel, session sidebar, keyboard shortcuts.
 
 ## End-to-End Testing
 

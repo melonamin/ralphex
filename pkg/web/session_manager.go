@@ -2,6 +2,7 @@ package web
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/umputun/ralphex/pkg/processor"
@@ -21,10 +23,6 @@ import (
 // active sessions are never evicted. oldest completed sessions are removed
 // when this limit is exceeded to prevent unbounded memory growth.
 const MaxCompletedSessions = 100
-
-// maxScannerBuffer is the maximum buffer size for bufio.Scanner.
-// set to 64MB to handle large outputs (e.g., diffs of large JSON files).
-const maxScannerBuffer = 64 * 1024 * 1024
 
 // SessionManager maintains a registry of all discovered sessions.
 // it handles discovery of progress files, state detection via flock,
@@ -161,9 +159,7 @@ func (m *SessionManager) updateSession(session *Session) error {
 	if prevState != newState {
 		if newState == SessionStateActive && !session.IsTailing() {
 			// session became active, start tailing from beginning to capture existing content
-			if tailErr := session.StartTailing(true); tailErr != nil {
-				log.Printf("[WARN] failed to start tailing for session %s: %v", session.ID, tailErr)
-			}
+			_ = session.StartTailing(true)
 		} else if newState == SessionStateCompleted && session.IsTailing() {
 			// session completed, stop tailing
 			session.StopTailing()
@@ -298,9 +294,7 @@ func (m *SessionManager) StartTailingActive() {
 
 	for _, session := range sessions {
 		if session.GetState() == SessionStateActive && !session.IsTailing() {
-			if err := session.StartTailing(true); err != nil { // read from beginning to populate buffer
-				log.Printf("[WARN] failed to start tailing for session %s: %v", session.ID, err)
-			}
+			_ = session.StartTailing(true) // read from beginning to populate buffer
 		}
 	}
 }
@@ -375,14 +369,18 @@ func IsActive(path string) (bool, error) {
 	defer f.Close()
 
 	// try to acquire exclusive lock non-blocking
-	gotLock, err := progress.TryLockFile(f)
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 	if err != nil {
+		// EWOULDBLOCK means file is locked by another process
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return true, nil
+		}
 		return false, fmt.Errorf("flock: %w", err)
 	}
 
-	// if we got the lock, file is not active
-	// if we didn't get the lock, file is locked by another process (active)
-	return !gotLock, nil
+	// we got the lock, release it immediately
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false, nil
 }
 
 // ParseProgressHeader reads the header section of a progress file and extracts metadata.
@@ -403,9 +401,6 @@ func ParseProgressHeader(path string) (SessionMetadata, error) {
 
 	var meta SessionMetadata
 	scanner := bufio.NewScanner(f)
-	// increase buffer size for large lines (matching executor)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, maxScannerBuffer)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -448,9 +443,6 @@ func loadProgressFileIntoSession(path string, session *Session) {
 	defer f.Close()
 
 	scanner := bufio.NewScanner(f)
-	// increase buffer size for large lines (matching executor)
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, maxScannerBuffer)
 	inHeader := true
 	phase := processor.PhaseTask
 	var pendingSection string // section header waiting for first timestamped event

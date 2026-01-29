@@ -472,6 +472,8 @@ Agents define *what* to check (review instructions). Prompts define *how* the wo
 
 </details>
 
+=======
+>>>>>>> 4df34b4 (feat: add web dashboard with SSE streaming and e2e tests)
 ## Web Dashboard
 
 The `--serve` flag starts a browser-based dashboard for real-time monitoring of plan execution.

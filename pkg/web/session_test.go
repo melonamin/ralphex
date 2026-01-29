@@ -292,7 +292,7 @@ func TestAllEventsReplayer_Replay(t *testing.T) {
 			Topics:      []string{"events"},
 		}
 
-		// replay should not panic and should handle empty ID
+		// Replay should not panic and should handle empty ID
 		err = replayer.Replay(subscription)
 		require.NoError(t, err)
 	})
@@ -316,7 +316,7 @@ func TestAllEventsReplayer_Replay(t *testing.T) {
 			Topics:      []string{"events"},
 		}
 
-		// replay with non-empty ID should work without modification
+		// Replay with non-empty ID should work without modification
 		err = replayer.Replay(subscription)
 		require.NoError(t, err)
 	})
@@ -327,7 +327,7 @@ func TestAllEventsReplayer_Replay(t *testing.T) {
 
 		replayer := &allEventsReplayer{inner: finiteReplayer}
 
-		// put should delegate to inner replayer
+		// Put should delegate to inner replayer
 		msg := &sse.Message{}
 		msg.AppendData("test message")
 		putMsg, err := replayer.Put(msg, []string{"events"})
