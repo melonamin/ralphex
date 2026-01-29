@@ -333,7 +333,7 @@ func waitVisible(t *testing.T, page playwright.Page, selector string, timeout ..
 		timeoutMs = timeout[0]
 	}
 
-	err := page.Locator(selector).WaitFor(playwright.LocatorWaitForOptions{
+	err := page.Locator(selector).First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(timeoutMs),
 	})
@@ -349,7 +349,7 @@ func waitHidden(t *testing.T, page playwright.Page, selector string, timeout ...
 		timeoutMs = timeout[0]
 	}
 
-	err := page.Locator(selector).WaitFor(playwright.LocatorWaitForOptions{
+	err := page.Locator(selector).First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(timeoutMs),
 	})
