@@ -198,14 +198,17 @@ func TestViewToggleButton(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, visible, "view toggle button should be visible")
 
+	// read state before clicking
+	initialClass, err := viewToggle.GetAttribute("class")
+	require.NoError(t, err)
+	wasGrouped := hasClass(initialClass, "grouped")
+
 	// click to toggle view mode
 	err = viewToggle.Click()
 	require.NoError(t, err)
 
 	// wait for state change after click
-	initialClass, err := viewToggle.GetAttribute("class")
-	require.NoError(t, err)
-	if hasClass(initialClass, "grouped") {
+	if wasGrouped {
 		waitForClassGone(t, viewToggle, "grouped")
 	} else {
 		waitForClass(t, viewToggle, "grouped")
