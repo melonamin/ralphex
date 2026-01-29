@@ -35,7 +35,7 @@ type opts struct {
 	Debug           bool     `short:"d" long:"debug" description:"enable debug logging"`
 	NoColor         bool     `long:"no-color" description:"disable color output"`
 	Version         bool     `short:"v" long:"version" description:"print version and exit"`
-	Serve           bool     `short:"s" long:"serve" description:"start web dashboard for real-time streaming"`
+	Serve           bool     `short:"s" long:"serve" description:"start watch-only web dashboard (no plan execution)"`
 	Port            int      `short:"p" long:"port" default:"8080" description:"web dashboard port"`
 	Watch           []string `short:"w" long:"watch" description:"directories to watch for progress files (repeatable)"`
 	Reset           bool     `long:"reset" description:"interactively reset global config to embedded defaults"`
@@ -128,13 +128,14 @@ func run(ctx context.Context, o opts) error {
 	// create colors from config (all colors guaranteed populated via fallback)
 	colors := progress.NewColors(cfg.Colors)
 
-	// watch-only mode: --serve with watch dirs (CLI or config) and no plan file
-	// runs web dashboard without plan execution, can run from any directory
-	if isWatchOnlyMode(o, cfg.WatchDirs) {
+	// watch-only mode: --serve starts the dashboard without plan execution.
+	// watches CLI dirs, config dirs, or cwd as fallback (ResolveWatchDirs handles precedence).
+	if o.Serve {
 		dirs := web.ResolveWatchDirs(o.Watch, cfg.WatchDirs)
 		dashboard := web.NewDashboard(web.DashboardConfig{
-			Port:   o.Port,
-			Colors: colors,
+			Port:      o.Port,
+			Colors:    colors,
+			AppConfig: cfg,
 		})
 		if watchErr := dashboard.RunWatchOnly(ctx, dirs); watchErr != nil {
 			return fmt.Errorf("run watch-only mode: %w", watchErr)
@@ -290,6 +291,7 @@ func executePlan(ctx context.Context, o opts, req executePlanRequest) error {
 			WatchDirs:       o.Watch,
 			ConfigWatchDirs: req.Config.WatchDirs,
 			Colors:          req.Colors,
+			AppConfig:       req.Config,
 		})
 		var dashErr error
 		runnerLog, dashErr = dashboard.Start(ctx)
@@ -361,12 +363,6 @@ func checkClaudeDep(cfg *config.Config) error {
 	return nil
 }
 
-// isWatchOnlyMode returns true if running in watch-only mode.
-// watch-only mode runs the web dashboard without executing any plan.
-func isWatchOnlyMode(o opts, configWatchDirs []string) bool {
-	return o.Serve && o.PlanFile == "" && o.PlanDescription == "" && (len(o.Watch) > 0 || len(configWatchDirs) > 0)
-}
-
 // determineMode returns the execution mode based on CLI flags.
 func determineMode(o opts) processor.Mode {
 	switch {
@@ -393,6 +389,24 @@ func modeRequiresBranch(mode processor.Mode) bool {
 func validateFlags(o opts) error {
 	if o.PlanDescription != "" && o.PlanFile != "" {
 		return errors.New("--plan flag conflicts with plan file argument; use one or the other")
+	}
+	if o.Serve && (o.PlanFile != "" || o.PlanDescription != "" || o.Review || o.CodexOnly) {
+		var conflicting []string
+		if o.PlanFile != "" {
+			conflicting = append(conflicting, "plan file argument")
+		}
+		if o.PlanDescription != "" {
+			conflicting = append(conflicting, "--plan")
+		}
+		if o.Review {
+			conflicting = append(conflicting, "--review")
+		}
+		if o.CodexOnly {
+			conflicting = append(conflicting, "--codex-only")
+		}
+		return fmt.Errorf("--serve cannot be combined with %s; "+
+			"run 'ralphex --serve' in one terminal and plan execution in another",
+			strings.Join(conflicting, ", "))
 	}
 	return nil
 }

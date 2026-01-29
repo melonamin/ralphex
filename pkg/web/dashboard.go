@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/umputun/ralphex/pkg/config"
 	"github.com/umputun/ralphex/pkg/processor"
 	"github.com/umputun/ralphex/pkg/progress"
 )
@@ -24,6 +25,7 @@ type DashboardConfig struct {
 	WatchDirs       []string         // CLI watch directories
 	ConfigWatchDirs []string         // config file watch directories
 	Colors          *progress.Colors // colors for output
+	AppConfig       *config.Config   // app config for plan runner (optional)
 }
 
 // Dashboard manages web server and file watching for progress monitoring.
@@ -35,6 +37,7 @@ type Dashboard struct {
 	watchDirs       []string
 	configWatchDirs []string
 	colors          *progress.Colors
+	appConfig       *config.Config
 }
 
 // NewDashboard creates a new dashboard with the given configuration.
@@ -47,6 +50,7 @@ func NewDashboard(cfg DashboardConfig) *Dashboard {
 		watchDirs:       cfg.WatchDirs,
 		configWatchDirs: cfg.ConfigWatchDirs,
 		colors:          cfg.Colors,
+		appConfig:       cfg.AppConfig,
 	}
 }
 
@@ -77,10 +81,11 @@ func (d *Dashboard) Start(ctx context.Context) (processor.Logger, error) {
 
 	var srv *Server
 	var watcher *Watcher
+	var sm *SessionManager
 
 	if useMultiSession {
 		// multi-session mode: use SessionManager and Watcher
-		sm := NewSessionManager()
+		sm = NewSessionManager()
 
 		// register the live execution session so dashboard uses it instead of creating a duplicate
 		// this ensures live events from BroadcastLogger go to the same session the dashboard displays
@@ -106,6 +111,11 @@ func (d *Dashboard) Start(ctx context.Context) (processor.Logger, error) {
 		if err != nil {
 			return nil, fmt.Errorf("create web server: %w", err)
 		}
+	}
+
+	// set up plan runner for web-initiated plan creation
+	if d.appConfig != nil && sm != nil {
+		srv.SetPlanRunner(NewPlanRunner(d.appConfig, sm))
 	}
 
 	// start server with startup check
@@ -145,7 +155,7 @@ func (d *Dashboard) RunWatchOnly(ctx context.Context, dirs []string) error {
 	}
 
 	// setup server and watcher
-	srvErrCh, watchErrCh, err := setupWatchMode(ctx, d.port, dirs)
+	srvErrCh, watchErrCh, err := setupWatchMode(ctx, d.port, dirs, d.appConfig)
 	if err != nil {
 		return err
 	}
@@ -159,7 +169,7 @@ func (d *Dashboard) RunWatchOnly(ctx context.Context, dirs []string) error {
 
 // setupWatchMode creates and starts the web server and file watcher for watch-only mode.
 // returns error channels for monitoring both components.
-func setupWatchMode(ctx context.Context, port int, dirs []string) (chan error, chan error, error) {
+func setupWatchMode(ctx context.Context, port int, dirs []string, appConfig *config.Config) (chan error, chan error, error) {
 	sm := NewSessionManager()
 	watcher, err := NewWatcher(dirs, sm)
 	if err != nil {
@@ -167,15 +177,24 @@ func setupWatchMode(ctx context.Context, port int, dirs []string) (chan error, c
 	}
 
 	serverCfg := ServerConfig{
-		Port:     port,
-		PlanName: "(watch mode)",
-		Branch:   "",
-		PlanFile: "",
+		Port:          port,
+		PlanName:      "(watch mode)",
+		Branch:        "",
+		PlanFile:      "",
+		WatchExplicit: true,
 	}
 
 	srv, err := NewServerWithSessions(serverCfg, sm)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create web server: %w", err)
+	}
+
+	// set up plan runner for web-initiated plan creation
+	if appConfig != nil {
+		if len(dirs) > 0 {
+			appConfig.WatchDirs = dirs
+		}
+		srv.SetPlanRunner(NewPlanRunner(appConfig, sm))
 	}
 
 	// start server with startup check

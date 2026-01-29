@@ -53,8 +53,9 @@ type Config struct {
 	FinalizeEnabled    bool `json:"finalize_enabled"`
 	FinalizeEnabledSet bool `json:"-"` // tracks if finalize_enabled was explicitly set in config
 
-	PlansDir  string   `json:"plans_dir"`
-	WatchDirs []string `json:"watch_dirs"` // directories to watch for progress files
+	PlansDir    string   `json:"plans_dir"`
+	WatchDirs   []string `json:"watch_dirs"`   // directories to watch for progress files
+	ProjectDirs []string `json:"project_dirs"` // directories to show in new plan dropdown
 
 	// error patterns to detect in executor output (e.g., rate limit messages)
 	ClaudeErrorPatterns []string `json:"claude_error_patterns"`
@@ -226,6 +227,7 @@ func loadConfigFromDirs(globalDir, localDir string) (*Config, error) {
 		FinalizeEnabledSet:   values.FinalizeEnabledSet,
 		PlansDir:             values.PlansDir,
 		WatchDirs:            values.WatchDirs,
+		ProjectDirs:          values.ProjectDirs,
 		ClaudeErrorPatterns:  values.ClaudeErrorPatterns,
 		CodexErrorPatterns:   values.CodexErrorPatterns,
 		Colors:               colors,

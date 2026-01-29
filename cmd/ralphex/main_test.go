@@ -121,29 +121,6 @@ func TestDetermineMode(t *testing.T) {
 	}
 }
 
-func TestIsWatchOnlyMode(t *testing.T) {
-	tests := []struct {
-		name            string
-		opts            opts
-		configWatchDirs []string
-		expected        bool
-	}{
-		{name: "serve_with_watch_and_no_plan", opts: opts{Serve: true, Watch: []string{"/tmp"}}, configWatchDirs: nil, expected: true},
-		{name: "serve_with_config_watch_and_no_plan", opts: opts{Serve: true}, configWatchDirs: []string{"/home"}, expected: true},
-		{name: "serve_without_watch", opts: opts{Serve: true}, configWatchDirs: nil, expected: false},
-		{name: "no_serve_with_watch", opts: opts{Watch: []string{"/tmp"}}, configWatchDirs: nil, expected: false},
-		{name: "serve_with_plan_file", opts: opts{Serve: true, Watch: []string{"/tmp"}, PlanFile: "plan.md"}, configWatchDirs: nil, expected: false},
-		{name: "serve_with_plan_description", opts: opts{Serve: true, Watch: []string{"/tmp"}, PlanDescription: "add feature"}, configWatchDirs: nil, expected: false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := isWatchOnlyMode(tc.opts, tc.configWatchDirs)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
-
 func TestPlanFlagConflict(t *testing.T) {
 	t.Run("returns_error_when_plan_and_planfile_both_set", func(t *testing.T) {
 		o := opts{
@@ -153,6 +130,17 @@ func TestPlanFlagConflict(t *testing.T) {
 		err := run(context.Background(), o)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "--plan flag conflicts")
+	})
+
+	t.Run("returns_error_when_serve_combined_with_plan", func(t *testing.T) {
+		o := opts{
+			Serve:    true,
+			PlanFile: "docs/plans/some-plan.md",
+		}
+		err := run(context.Background(), o)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--serve cannot be combined with")
+		assert.Contains(t, err.Error(), "plan file argument")
 	})
 
 	t.Run("no_error_when_only_plan_flag_set", func(t *testing.T) {
@@ -421,6 +409,11 @@ func TestValidateFlags(t *testing.T) {
 		{name: "plan_flag_only_is_valid", opts: opts{PlanDescription: "add feature"}, wantErr: false},
 		{name: "plan_file_only_is_valid", opts: opts{PlanFile: "docs/plans/test.md"}, wantErr: false},
 		{name: "both_plan_and_planfile_conflicts", opts: opts{PlanDescription: "add feature", PlanFile: "docs/plans/test.md"}, wantErr: true, errMsg: "conflicts"},
+		{name: "serve_only_is_valid", opts: opts{Serve: true}, wantErr: false},
+		{name: "serve_with_planfile_conflicts", opts: opts{Serve: true, PlanFile: "docs/plans/test.md"}, wantErr: true, errMsg: "--serve cannot be combined with"},
+		{name: "serve_with_plan_description_conflicts", opts: opts{Serve: true, PlanDescription: "add feature"}, wantErr: true, errMsg: "--serve cannot be combined with"},
+		{name: "serve_with_review_conflicts", opts: opts{Serve: true, Review: true}, wantErr: true, errMsg: "--serve cannot be combined with"},
+		{name: "serve_with_codex_only_conflicts", opts: opts{Serve: true, CodexOnly: true}, wantErr: true, errMsg: "--serve cannot be combined with"},
 	}
 
 	for _, tc := range tests {

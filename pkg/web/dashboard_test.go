@@ -147,7 +147,7 @@ func TestSetupWatchMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	srvErrCh, watchErrCh, err := setupWatchMode(ctx, 0, []string{tmpDir})
+	srvErrCh, watchErrCh, err := setupWatchMode(ctx, 0, []string{tmpDir}, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, srvErrCh)
 	assert.NotNil(t, watchErrCh)
