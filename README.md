@@ -647,6 +647,17 @@ It depends. If the plan file is the only uncommitted change, ralphex auto-commit
 
 Agents define *what* to check (review instructions). Prompts define *how* the workflow runs (execution steps, signal handling).
 
+**Can I use Cursor CLI instead of Claude Code?**
+
+Yes. [Cursor CLI](https://cursor.com/cli) is community-tested as a drop-in alternative. Configure in `~/.config/ralphex/config`:
+
+```ini
+claude_command = agent
+claude_args = --force --output-format stream-json
+```
+
+Key differences: `agent` command (not `claude`), `--force` flag (not `--dangerously-skip-permissions`). Stream format and signals are compatible. *Note: this is community-tested, not officially supported. Compatibility depends on Cursor maintaining Claude Code compatibility.*
+
 </details>
 
 ## Web Dashboard
