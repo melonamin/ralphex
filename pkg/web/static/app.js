@@ -354,6 +354,7 @@
 
     // regex pattern for task iteration sections (hoisted for performance)
     var TASK_ITERATION_PATTERN = /^task iteration \d+$/i;
+    var TASK_ITERATION_NUMBER_PATTERN = /^task iteration (\d+)$/i;
     var PLAN_ITERATION_PATTERN = /^plan iteration \d+$/i;
     var QA_LINE_PATTERN = /^(question|options|answer):\s+/i;
     var QA_BLOCK_PATTERN = /^<<<RALPHEX:(QUESTION|END)>>>$/i;
@@ -363,6 +364,14 @@
     function isTaskIteration(sectionText) {
         if (!sectionText) return false;
         return TASK_ITERATION_PATTERN.test(sectionText);
+    }
+
+    function extractTaskIterationNumber(sectionText) {
+        if (!sectionText) return null;
+        var matches = TASK_ITERATION_NUMBER_PATTERN.exec(sectionText);
+        if (!matches) return null;
+        var num = parseInt(matches[1], 10);
+        return isNaN(num) ? null : num;
     }
 
     function isPlanIteration(sectionText) {
@@ -389,14 +398,18 @@
     // format section title for task iterations using current active task
     // stores task number in data attribute for later refresh if plan loads after events
     function formatSectionTitle(sectionText, sectionElement) {
-        if (isTaskIteration(sectionText) && state.currentTaskNum) {
-            // store the task number for later refresh
-            if (sectionElement) {
-                sectionElement.dataset.taskNum = state.currentTaskNum;
-            }
-            var title = getTaskTitle(state.currentTaskNum);
-            if (title) {
-                return 'Task ' + state.currentTaskNum + ': ' + title;
+        if (isTaskIteration(sectionText)) {
+            var taskNum = state.currentTaskNum || extractTaskIterationNumber(sectionText);
+            if (taskNum) {
+                // store the task number for later refresh
+                if (sectionElement) {
+                    sectionElement.dataset.taskNum = taskNum;
+                }
+                var title = getTaskTitle(taskNum);
+                if (title) {
+                    return 'Task ' + taskNum + ': ' + title;
+                }
+                return 'Task ' + taskNum;
             }
         }
         return sectionText;
@@ -712,6 +725,7 @@
     // handle task boundary events
     function handleTaskStart(event) {
         state.currentTaskNum = event.task_num;
+        clearActiveTasksExcept(event.task_num);
         updatePlanTaskStatus(event.task_num, 'active');
     }
 
@@ -754,13 +768,40 @@
         }
     }
 
+    // ensure only one task is highlighted as active
+    function clearActiveTasksExcept(taskNum) {
+        var activeTasks = planContent.querySelectorAll('.plan-task.active');
+        activeTasks.forEach(function(taskEl) {
+            var num = parseInt(taskEl.dataset.taskNum, 10);
+            if (num === taskNum) {
+                return;
+            }
+            taskEl.classList.remove('active');
+            var statusEl = taskEl.querySelector('.plan-task-status');
+            if (!statusEl) {
+                return;
+            }
+            statusEl.classList.remove('active', 'pending', 'done', 'failed');
+            var unchecked = taskEl.querySelectorAll('.plan-checkbox:not(.checked)');
+            if (unchecked.length === 0) {
+                statusEl.classList.add('done');
+                statusEl.textContent = '✓';
+            } else {
+                statusEl.classList.add('pending');
+                statusEl.textContent = '○';
+            }
+        });
+    }
+
     // render event to output
     function renderEvent(event) {
         var eventTimestamp = new Date(event.timestamp).getTime();
 
         // track execution start time
-        if (!state.executionStartTime) {
+        if (!state.executionStartTime || eventTimestamp < state.executionStartTime) {
             state.executionStartTime = eventTimestamp;
+        }
+        if (state.executionStartTime && !state.elapsedTimerInterval && !state.isTerminalState) {
             startElapsedTimer();
         }
 
@@ -2183,6 +2224,25 @@
         }
     }
 
+    function parseTimeMs(value) {
+        if (!value) return null;
+        var ts = new Date(value).getTime();
+        if (!isFinite(ts) || ts <= 0) return null;
+        return ts;
+    }
+
+    function seedExecutionStartTimeFromSession(session) {
+        var startMs = session ? parseTimeMs(session.startTime) : null;
+        if (!startMs) return;
+        if (!state.executionStartTime || startMs < state.executionStartTime) {
+            state.executionStartTime = startMs;
+        }
+        if (state.executionStartTime && !state.elapsedTimerInterval && !state.isTerminalState) {
+            startElapsedTimer();
+        }
+        updateTimers();
+    }
+
     // extract plan name from path
     function extractPlanName(path) {
         if (!path) return 'Waiting';
@@ -2494,6 +2554,7 @@
         }
         updatePlanResumeButton(session);
         applySessionModeUI(session);
+        seedExecutionStartTimeFromSession(session);
     }
 
     function updatePlanResumeButton(session) {
@@ -2626,7 +2687,8 @@
         }
 
         // reset output state
-        resetOutputState();
+        var sessionStartMs = parseTimeMs(state.currentSession && state.currentSession.startTime);
+        resetOutputState({ seedStartTime: sessionStartMs });
         state.isFirstConnect = true;
         state.reconnectDelay = SSE_INITIAL_RECONNECT_MS;
         state.pendingScrollRestore = true; // restore scroll position after events load
@@ -2722,6 +2784,7 @@
 
     function resetOutputState(options) {
         var preserveTiming = options && options.preserveTiming;
+        var seedStartTime = options && options.seedStartTime;
         var preserved = null;
         if (preserveTiming) {
             preserved = {
@@ -2792,6 +2855,9 @@
                 startElapsedTimer();
             }
         }
+        if (!preserveTiming && seedStartTime) {
+            seedExecutionStartTimeFromSession({ startTime: seedStartTime });
+        }
         updatePlanResumeButton(state.currentSession);
     }
 
@@ -2842,16 +2908,19 @@
             taskEl.className = 'plan-task';
             taskEl.dataset.taskNum = task.number;
 
-            if (task.status === 'active') {
-                taskEl.classList.add('active');
+            var displayStatus = task.status;
+            if (displayStatus === 'active') {
+                var allChecked = task.checkboxes && task.checkboxes.length > 0 &&
+                    task.checkboxes.every(function(cb) { return cb.checked; });
+                displayStatus = allChecked ? 'done' : 'pending';
             }
 
             const header = document.createElement('div');
             header.className = 'plan-task-header';
 
             const statusIcon = document.createElement('span');
-            statusIcon.className = 'plan-task-status ' + task.status;
-            switch (task.status) {
+            statusIcon.className = 'plan-task-status ' + displayStatus;
+            switch (displayStatus) {
                 case 'pending': statusIcon.textContent = '○'; break;
                 case 'active': statusIcon.textContent = '●'; break;
                 case 'done': statusIcon.textContent = '✓'; break;
@@ -2893,12 +2962,15 @@
                 taskEl.appendChild(cbEl);
             });
 
-            planContent.appendChild(taskEl);
-        });
+        planContent.appendChild(taskEl);
+    });
 
-        // update any section headers that were rendered before plan data loaded
-        refreshSectionTitles();
+    // update any section headers that were rendered before plan data loaded
+    refreshSectionTitles();
+    if (state.currentTaskNum) {
+        updatePlanTaskStatus(state.currentTaskNum, 'active');
     }
+}
 
     // event listeners
     phaseTabs.forEach(function(tab) {

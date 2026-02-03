@@ -186,7 +186,7 @@ func (s *Session) MarkLoadedIfNot() bool {
 }
 
 // StartTailing begins tailing the progress file and feeding events to SSE clients.
-// if fromStart is true, reads from the beginning of the file; otherwise from the end.
+// if fromStart is true, reads from the beginning of the file.
 // does nothing if already tailing.
 func (s *Session) StartTailing(fromStart bool) error {
 	s.mu.Lock()

@@ -477,6 +477,10 @@ func loadProgressFileIntoSession(path string, session *Session) {
 		// check for section header (--- section name ---)
 		if matches := sectionRegex.FindStringSubmatch(line); matches != nil {
 			sectionName := matches[1]
+			if pendingSection != "" {
+				emitPendingSection(session, pendingSection, phase, time.Now())
+				pendingSection = ""
+			}
 			phase = phaseFromSection(sectionName)
 			// defer emitting section until we see a timestamped event
 			pendingSection = sectionName
@@ -523,6 +527,10 @@ func loadProgressFileIntoSession(path string, session *Session) {
 			Text:      line,
 			Timestamp: time.Now(),
 		})
+	}
+
+	if pendingSection != "" {
+		emitPendingSection(session, pendingSection, phase, time.Now())
 	}
 }
 
