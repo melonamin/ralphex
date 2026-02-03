@@ -16,18 +16,21 @@ RUN \
     echo "version=$version" && \
     go build -o /build/ralphex -ldflags "-X main.revision=${version} -s -w" ./cmd/ralphex
 
-# Stage 2: Runtime image based on umputun/baseimage:app
+# Stage 2: Base runtime image
 FROM ghcr.io/umputun/baseimage/app:latest
 
 LABEL org.opencontainers.image.source="https://github.com/umputun/ralphex"
 LABEL org.opencontainers.image.description="Autonomous plan execution with Claude Code"
 LABEL org.opencontainers.image.licenses="MIT"
 
-# install node.js, npm, and claude code dependencies
+# install base tools (node.js, npm, python, essentials)
+# for language-specific images, see Dockerfile-go or extend this image
 RUN apk add --no-cache \
     nodejs npm \
+    python3 py3-pip \
     libgcc libstdc++ ripgrep \
-    fzf git bash && \
+    fzf git bash \
+    make gcc musl-dev && \
     sed -i 's|/home/app:/bin/sh|/home/app:/bin/bash|' /etc/passwd
 
 # set env for claude code on alpine (use system ripgrep)

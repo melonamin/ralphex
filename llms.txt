@@ -64,6 +64,48 @@ Configuration directory: `~/.config/ralphex/`
 
 Run `ralphex --reset` to restore default configuration interactively.
 
+## Docker Images
+
+ralphex provides Docker images for isolated execution:
+
+| Image | Contents |
+|-------|----------|
+| `ghcr.io/umputun/ralphex:latest` | Base: Claude Code, Codex, Node.js, Python, git, make, gcc, bash, fzf, ripgrep |
+| `ghcr.io/umputun/ralphex-go:latest` | Go development: base + Go 1.25, golangci-lint, moq, goimports |
+
+**Using Docker wrapper:**
+```bash
+# install wrapper script (defaults to Go image)
+curl -sL https://raw.githubusercontent.com/umputun/ralphex/master/scripts/ralphex-dk.sh -o /usr/local/bin/ralphex
+chmod +x /usr/local/bin/ralphex
+
+# for non-Go projects, use base image
+export RALPHEX_IMAGE=ghcr.io/umputun/ralphex:latest
+```
+
+**Creating custom images for other languages:**
+
+```dockerfile
+FROM ghcr.io/umputun/ralphex:latest
+
+# Rust
+RUN apk add --no-cache rust cargo
+ENV CARGO_HOME=/home/app/.cargo PATH="${PATH}:${CARGO_HOME}/bin"
+
+# Java
+RUN apk add --no-cache openjdk21-jdk
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk PATH="${PATH}:${JAVA_HOME}/bin"
+
+# TypeScript (node/npm already included)
+RUN npm install -g typescript
+```
+
+Build and use:
+```bash
+docker build -t my-ralphex .
+RALPHEX_IMAGE=my-ralphex ralphex docs/plans/feature.md
+```
+
 ---
 
 ## Claude Code Integration (Optional)

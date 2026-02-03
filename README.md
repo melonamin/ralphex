@@ -190,7 +190,12 @@ curl -sL https://raw.githubusercontent.com/umputun/ralphex/master/scripts/ralphe
 chmod +x /usr/local/bin/ralphex
 ```
 
-Then use `ralphex` as usual - it runs in a container with Claude Code and Codex pre-installed.
+The script defaults to the Go image (`ralphex-go`). For other languages, use the base image:
+```bash
+export RALPHEX_IMAGE=ghcr.io/umputun/ralphex:latest
+```
+
+Then use `ralphex` as usual - it runs in a container with Claude Code and Codex pre-installed. The script shows which image it's using at startup.
 
 **Why use Docker?** ralphex runs Claude Code with `--dangerously-skip-permissions`, giving it full access to execute commands and modify files. Running in a container provides isolation - Claude can only access the mounted project directory, not your entire system. This makes autonomous execution significantly safer.
 
@@ -239,6 +244,86 @@ Then use `ralphex` as usual - it runs in a container with Claude Code and Codex 
 ```bash
 ralphex --update  # pull latest image
 ```
+
+<details markdown>
+<summary>Available images</summary>
+
+Two images are published:
+
+| Image | Description |
+|-------|-------------|
+| `ghcr.io/umputun/ralphex:latest` | Base image for any language |
+| `ghcr.io/umputun/ralphex-go:latest` | Go development (extends base) |
+
+**Base image includes:**
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Claude Code | latest | AI coding assistant |
+| Codex | latest | External code review |
+| Node.js/npm | 24.x | Required for Claude Code |
+| Python/pip | 3.x | Scripts and automation |
+| git | 2.x | Version control |
+| make | 4.x | Build automation |
+| gcc, musl-dev | - | C compiler for native extensions |
+| bash | 5.x | Shell |
+| fzf | - | Fuzzy finder for plan selection |
+| ripgrep | - | Fast search (used by Claude Code) |
+
+**Go image adds:**
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| Go | 1.25.6 | Go compiler and runtime |
+| golangci-lint | latest | Go linter |
+| moq | latest | Mock generator |
+| goimports | latest | Import formatter |
+
+**For Go projects**, use the `-go` image:
+```bash
+RALPHEX_IMAGE=ghcr.io/umputun/ralphex-go:latest ralphex docs/plans/feature.md
+```
+
+**For other languages**, extend the base image. Example `Dockerfile-go` (used to build `ralphex-go`):
+
+```dockerfile
+FROM ghcr.io/umputun/ralphex:latest
+
+# install go from official distribution
+ARG GO_VERSION=1.25.6
+RUN ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/') && \
+    wget -qO- "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -xz -C /usr/local
+
+ENV GOROOT=/usr/local/go
+ENV GOPATH=/home/app/go
+ENV PATH="${PATH}:${GOROOT}/bin:${GOPATH}/bin"
+
+# install go tools
+RUN wget -qO- https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin && \
+    GOBIN=/usr/local/bin go install github.com/matryer/moq@latest && \
+    GOBIN=/usr/local/bin go install golang.org/x/tools/cmd/goimports@latest
+```
+
+Similar pattern for Rust, Java, etc:
+```dockerfile
+FROM ghcr.io/umputun/ralphex:latest
+
+# rust
+RUN apk add --no-cache rust cargo
+ENV CARGO_HOME=/home/app/.cargo PATH="${PATH}:${CARGO_HOME}/bin"
+
+# java
+RUN apk add --no-cache openjdk21-jdk
+ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk PATH="${PATH}:${JAVA_HOME}/bin"
+```
+
+Build and use:
+```bash
+docker build -t my-ralphex -f Dockerfile.python .
+RALPHEX_IMAGE=my-ralphex ralphex docs/plans/feature.md
+```
+
+</details>
 
 Example with custom port:
 ```bash

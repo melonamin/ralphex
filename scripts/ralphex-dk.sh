@@ -9,7 +9,7 @@
 
 set -e
 
-IMAGE="${RALPHEX_IMAGE:-ghcr.io/umputun/ralphex:latest}"
+IMAGE="${RALPHEX_IMAGE:-ghcr.io/umputun/ralphex-go:latest}"
 PORT="${RALPHEX_PORT:-8080}"
 
 # handle --update flag: pull latest image and exit
@@ -103,6 +103,9 @@ fi
 # only use -it when running interactively AND not using background mode for creds cleanup
 DOCKER_FLAGS="--rm"
 [[ -t 0 && -z "$CREDS_TEMP" ]] && DOCKER_FLAGS="-it --rm"
+
+# show which image is being used
+echo "using image: ${IMAGE}" >&2
 
 # run docker in background so we can delete temp credentials quickly
 docker run $DOCKER_FLAGS \
