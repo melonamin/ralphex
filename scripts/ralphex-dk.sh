@@ -100,30 +100,43 @@ if [[ -e "${HOME}/.gitconfig" ]]; then
     VOLUMES+=(-v "$(resolve "${HOME}/.gitconfig"):/home/app/.gitconfig:ro")
 fi
 
-# only use -it when running interactively AND not using background mode for creds cleanup
-DOCKER_FLAGS="--rm"
-[[ -t 0 && -z "$CREDS_TEMP" ]] && DOCKER_FLAGS="-it --rm"
+# mount global gitignore at same path as configured in gitconfig
+GLOBAL_GITIGNORE=$(git config --global core.excludesFile 2>/dev/null || true)
+if [[ -n "$GLOBAL_GITIGNORE" && -e "$GLOBAL_GITIGNORE" ]]; then
+    VOLUMES+=(-v "$(resolve "$GLOBAL_GITIGNORE"):${GLOBAL_GITIGNORE}:ro")
+fi
 
 # show which image is being used
 echo "using image: ${IMAGE}" >&2
 
-# run docker in background so we can delete temp credentials quickly
-docker run $DOCKER_FLAGS \
-    -e APP_UID="$(id -u)" \
-    -e SKIP_HOME_CHOWN=1 \
-    -e INIT_QUIET=1 \
-    -e CLAUDE_CONFIG_DIR=/home/app/.claude \
-    -p "${PORT}:${PORT}" \
-    "${VOLUMES[@]}" \
-    -w /workspace \
-    "${IMAGE}" /srv/ralphex "$@" &
-DOCKER_PID=$!
-
-# delete temp credentials after init.sh copies them (reduces exposure window)
-# run in background so it doesn't block; 10s gives plenty of time for init.sh
+# schedule credential cleanup (runs in background, deletes after init.sh copies)
 if [[ -n "$CREDS_TEMP" ]]; then
     (sleep 10; rm -f "$CREDS_TEMP") &
 fi
 
-# wait for docker and propagate exit code
-wait $DOCKER_PID
+# run docker - foreground for interactive (TTY needed), background for non-interactive
+if [[ -t 0 ]]; then
+    # interactive mode: run in foreground so TTY works
+    docker run -it --rm \
+        -e APP_UID="$(id -u)" \
+        -e SKIP_HOME_CHOWN=1 \
+        -e INIT_QUIET=1 \
+        -e CLAUDE_CONFIG_DIR=/home/app/.claude \
+        -p "${PORT}:${PORT}" \
+        "${VOLUMES[@]}" \
+        -w /workspace \
+        "${IMAGE}" /srv/ralphex "$@"
+else
+    # non-interactive: run in background to allow parallel credential cleanup
+    docker run --rm \
+        -e APP_UID="$(id -u)" \
+        -e SKIP_HOME_CHOWN=1 \
+        -e INIT_QUIET=1 \
+        -e CLAUDE_CONFIG_DIR=/home/app/.claude \
+        -p "${PORT}:${PORT}" \
+        "${VOLUMES[@]}" \
+        -w /workspace \
+        "${IMAGE}" /srv/ralphex "$@" &
+    DOCKER_PID=$!
+    wait $DOCKER_PID
+fi
