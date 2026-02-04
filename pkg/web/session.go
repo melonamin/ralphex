@@ -76,6 +76,9 @@ type Session struct {
 	// lastModified tracks the file's last modification time for change detection
 	lastModified time.Time
 
+	// diffStats holds git diff statistics when available (nil if not set)
+	diffStats *DiffStats
+
 	// stopTailCh signals the tail feeder goroutine to stop
 	stopTailCh chan struct{}
 
@@ -163,6 +166,24 @@ func (s *Session) GetLastModified() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastModified
+}
+
+// GetDiffStats returns a copy of the diff stats, or nil if not set.
+func (s *Session) GetDiffStats() *DiffStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.diffStats == nil {
+		return nil
+	}
+	copyStats := *s.diffStats
+	return &copyStats
+}
+
+// SetDiffStats stores diff stats for the session.
+func (s *Session) SetDiffStats(stats DiffStats) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.diffStats = &stats
 }
 
 // IsLoaded returns whether historical data has been loaded into the SSE server.
@@ -259,6 +280,11 @@ func (s *Session) feedEvents() {
 		case event, ok := <-eventCh:
 			if !ok {
 				return
+			}
+			if event.Type == EventTypeOutput {
+				if stats, ok := parseDiffStats(event.Text); ok {
+					s.SetDiffStats(stats)
+				}
 			}
 			if err := s.Publish(event); err != nil {
 				log.Printf("[WARN] failed to publish tailed event: %v", err)

@@ -13,6 +13,7 @@
     const output = document.getElementById('output');
     const statusBadge = document.getElementById('status-badge');
     const elapsedTimeEl = document.getElementById('elapsed-time');
+    const diffStatsEl = document.getElementById('diff-stats');
     const searchInput = document.getElementById('search');
     const scrollIndicator = document.getElementById('scroll-indicator');
     const scrollToBottomBtn = document.getElementById('scroll-to-bottom');
@@ -63,6 +64,7 @@
 
     // session polling interval
     var SESSION_POLL_INTERVAL_MS = 5000;
+    var SESSION_STICKY_MS = 10 * 60 * 1000;
 
     // view mode constants
     var VIEW_MODE = {
@@ -96,6 +98,7 @@
         currentSessionId: null,
         currentSession: null,
         sessionPollInterval: null,
+        sessionOrder: [],
         resumingProgressPath: null,
         resumingPromise: null,
         resumableByProgressPath: {},
@@ -359,6 +362,7 @@
     var QA_LINE_PATTERN = /^(question|options|answer):\s+/i;
     var QA_BLOCK_PATTERN = /^<<<RALPHEX:(QUESTION|END)>>>$/i;
     var QA_JSON_PATTERN = /^\{.*"question"\s*:/i;
+    var DIFF_STATS_PATTERN = /^DIFFSTATS:\s*files=(\d+)\s+additions=(\d+)\s+deletions=(\d+)\s*$/i;
 
     // check if section text is a task iteration pattern
     function isTaskIteration(sectionText) {
@@ -382,6 +386,60 @@
     function isPlanQALine(text) {
         if (!text) return false;
         return QA_LINE_PATTERN.test(text) || QA_BLOCK_PATTERN.test(text) || QA_JSON_PATTERN.test(text);
+    }
+
+    function formatDiffStats(stats) {
+        if (!stats || !stats.files) return '';
+        return stats.files + ' files +' + stats.additions + '/-' + stats.deletions;
+    }
+
+    function updateDiffStats(stats) {
+        if (!diffStatsEl) return;
+        var text = formatDiffStats(stats);
+        if (!text) {
+            diffStatsEl.textContent = '';
+            diffStatsEl.removeAttribute('title');
+            return;
+        }
+        var additions = typeof stats.additions === 'number' ? stats.additions : 0;
+        var deletions = typeof stats.deletions === 'number' ? stats.deletions : 0;
+        diffStatsEl.textContent = '';
+        var filesSpan = document.createElement('span');
+        filesSpan.className = 'diff-files';
+        filesSpan.textContent = stats.files + ' files ';
+
+        var addSpan = document.createElement('span');
+        addSpan.className = 'diff-additions';
+        addSpan.textContent = '+' + additions;
+
+        var slashSpan = document.createElement('span');
+        slashSpan.className = 'diff-separator';
+        slashSpan.textContent = '/';
+
+        var delSpan = document.createElement('span');
+        delSpan.className = 'diff-deletions';
+        delSpan.textContent = '-' + deletions;
+
+        diffStatsEl.appendChild(filesSpan);
+        diffStatsEl.appendChild(addSpan);
+        diffStatsEl.appendChild(slashSpan);
+        diffStatsEl.appendChild(delSpan);
+        if (text) {
+            diffStatsEl.title = text;
+        } else {
+            diffStatsEl.removeAttribute('title');
+        }
+    }
+
+    function parseDiffStatsText(text) {
+        if (!text) return null;
+        var matches = DIFF_STATS_PATTERN.exec(text);
+        if (!matches) return null;
+        return {
+            files: parseInt(matches[1], 10),
+            additions: parseInt(matches[2], 10),
+            deletions: parseInt(matches[3], 10)
+        };
     }
 
     // look up task title by number from plan data
@@ -807,6 +865,17 @@
 
         // always update lastEventTimestamp for duration calculations
         state.lastEventTimestamp = eventTimestamp;
+
+        if (event && event.type === 'output') {
+            var diffStats = parseDiffStatsText(event.text);
+            if (diffStats) {
+                if (state.currentSession) {
+                    state.currentSession.diffStats = diffStats;
+                }
+                updateDiffStats(diffStats);
+                return; // metadata line, don't render
+            }
+        }
 
         // update status badge
         updateStatusBadge(event);
@@ -2164,6 +2233,7 @@
                     })
                     .then(function() {
                         var displaySessions = filterSessionsForDisplay(sessions);
+                        displaySessions = applyStickySessionOrder(displaySessions);
                         renderSessionList(displaySessions);
 
                         var current = state.currentSessionId ? findSessionById(state.currentSessionId) : null;
@@ -2229,6 +2299,69 @@
         var ts = new Date(value).getTime();
         if (!isFinite(ts) || ts <= 0) return null;
         return ts;
+    }
+
+    function isStickySession(session) {
+        if (!session || session.state !== 'active') return false;
+        var lastMs = parseTimeMs(session.lastModified);
+        if (!lastMs) return false;
+        return Date.now() - lastMs <= SESSION_STICKY_MS;
+    }
+
+    function applyStickySessionOrder(sessions) {
+        if (!sessions || sessions.length === 0) {
+            state.sessionOrder = [];
+            return sessions;
+        }
+
+        if (!state.sessionOrder || state.sessionOrder.length === 0) {
+            state.sessionOrder = sessions.map(function(session) { return session.id; });
+            return sessions;
+        }
+
+        var prevIndex = {};
+        state.sessionOrder.forEach(function(id, idx) {
+            prevIndex[id] = idx;
+        });
+
+        var byId = {};
+        sessions.forEach(function(session) {
+            byId[session.id] = session;
+        });
+
+        var ordered = [];
+        state.sessionOrder.forEach(function(id) {
+            var session = byId[id];
+            if (!session) return;
+            if (isStickySession(session)) {
+                ordered.push(session);
+            } else {
+                ordered.push(null);
+            }
+        });
+
+        var nonSticky = sessions.filter(function(session) {
+            return !(isStickySession(session) && prevIndex[session.id] !== undefined);
+        });
+        nonSticky.sort(function(a, b) {
+            return (parseTimeMs(b.lastModified) || 0) - (parseTimeMs(a.lastModified) || 0);
+        });
+
+        var filled = [];
+        var nonStickyIndex = 0;
+        ordered.forEach(function(session) {
+            if (session) {
+                filled.push(session);
+            } else if (nonStickyIndex < nonSticky.length) {
+                filled.push(nonSticky[nonStickyIndex++]);
+            }
+        });
+        while (nonStickyIndex < nonSticky.length) {
+            filled.push(nonSticky[nonStickyIndex++]);
+        }
+
+        state.sessionOrder = filled.map(function(session) { return session.id; });
+        return filled;
     }
 
     function seedExecutionStartTimeFromSession(session) {
@@ -2554,6 +2687,7 @@
         }
         updatePlanResumeButton(session);
         applySessionModeUI(session);
+        updateDiffStats(session.diffStats);
         seedExecutionStartTimeFromSession(session);
     }
 

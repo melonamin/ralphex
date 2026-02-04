@@ -488,34 +488,7 @@ func loadProgressFileIntoSession(path string, session *Session) {
 
 		// check for timestamped line
 		if matches := timestampRegex.FindStringSubmatch(line); matches != nil {
-			text := matches[2]
-
-			// parse timestamp
-			ts, err := time.Parse("06-01-02 15:04:05", matches[1])
-			if err != nil {
-				ts = time.Now()
-			}
-
-			// emit pending section with this event's timestamp (for accurate durations)
-			if pendingSection != "" {
-				emitPendingSection(session, pendingSection, phase, ts)
-				pendingSection = ""
-			}
-
-			eventType := detectEventType(text)
-			event := Event{
-				Type:      eventType,
-				Phase:     phase,
-				Text:      text,
-				Timestamp: ts,
-			}
-
-			if sig := extractSignalFromText(text); sig != "" {
-				event.Signal = sig
-				event.Type = EventTypeSignal
-			}
-
-			_ = session.Publish(event)
+			handleTimestampedLine(session, &pendingSection, phase, matches)
 			continue
 		}
 
@@ -531,6 +504,45 @@ func loadProgressFileIntoSession(path string, session *Session) {
 	if pendingSection != "" {
 		emitPendingSection(session, pendingSection, phase, time.Now())
 	}
+}
+
+func handleTimestampedLine(session *Session, pendingSection *string, phase processor.Phase, matches []string) {
+	ts := parseProgressTimestamp(matches[1])
+	text := matches[2]
+
+	// emit pending section with this event's timestamp (for accurate durations)
+	if pendingSection != nil && *pendingSection != "" {
+		emitPendingSection(session, *pendingSection, phase, ts)
+		*pendingSection = ""
+	}
+
+	event := Event{
+		Type:      detectEventType(text),
+		Phase:     phase,
+		Text:      text,
+		Timestamp: ts,
+	}
+
+	if sig := extractSignalFromText(text); sig != "" {
+		event.Signal = sig
+		event.Type = EventTypeSignal
+	}
+
+	if event.Type == EventTypeOutput {
+		if stats, ok := parseDiffStats(event.Text); ok {
+			session.SetDiffStats(stats)
+		}
+	}
+
+	_ = session.Publish(event)
+}
+
+func parseProgressTimestamp(raw string) time.Time {
+	ts, err := time.Parse("06-01-02 15:04:05", raw)
+	if err != nil {
+		return time.Now()
+	}
+	return ts
 }
 
 // phaseFromSection determines the phase from a section name.

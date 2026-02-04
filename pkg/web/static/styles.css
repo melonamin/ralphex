@@ -587,6 +587,37 @@ header h1 {
     font-weight: 500;
 }
 
+.diff-stats {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.diff-stats:empty {
+    display: none;
+}
+
+.diff-stats .diff-files {
+    color: var(--text-muted);
+}
+
+.diff-stats .diff-additions {
+    color: var(--phase-task);
+}
+
+.diff-stats .diff-deletions {
+    color: var(--color-error);
+}
+
+.diff-stats .diff-separator {
+    color: var(--text-muted);
+}
+
 .new-plan-btn {
     font-family: var(--font-sans);
     font-size: 11px;
@@ -1855,6 +1886,7 @@ body.plan-collapsed .scroll-indicator {
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     transition: border-color 0.15s ease, background 0.15s ease;
+    box-sizing: border-box;
 }
 
 .dir-select:focus,
@@ -1867,6 +1899,8 @@ body.plan-collapsed .scroll-indicator {
 
 .dir-select {
     cursor: pointer;
+    width: 100%;
+    max-width: 100%;
 }
 
 .dir-select option {
@@ -1878,6 +1912,11 @@ body.plan-collapsed .scroll-indicator {
     width: 100%;
     resize: vertical;
     min-height: 80px;
+}
+
+.dir-input {
+    width: 100%;
+    max-width: 100%;
 }
 
 .form-hint {
