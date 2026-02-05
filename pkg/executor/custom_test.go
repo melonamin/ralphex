@@ -176,17 +176,17 @@ func TestCustomExecutor_Run_ErrorPatterns(t *testing.T) {
 		wantPattern string
 	}{
 		{
-			name:       "no patterns configured",
-			output:     "Rate limit exceeded",
-			patterns:   nil,
-			wantError:  false,
+			name:        "no patterns configured",
+			output:      "Rate limit exceeded",
+			patterns:    nil,
+			wantError:   false,
 			wantPattern: "",
 		},
 		{
-			name:       "pattern not matched",
-			output:     "Analysis complete: no issues found",
-			patterns:   []string{"rate limit", "quota exceeded"},
-			wantError:  false,
+			name:        "pattern not matched",
+			output:      "Analysis complete: no issues found",
+			patterns:    []string{"rate limit", "quota exceeded"},
+			wantError:   false,
 			wantPattern: "",
 		},
 		{

@@ -475,34 +475,34 @@ func (r *Runner) runCodexLoop(ctx context.Context) error {
 			return errors.New("custom review script not configured")
 		}
 		return r.runExternalReviewLoop(ctx, externalReviewConfig{
-			name:           "custom",
-			runReview:      func(ctx context.Context, prompt string) executor.Result { return r.custom.Run(ctx, prompt) },
-			buildPrompt:    r.buildCustomReviewPrompt,
+			name:            "custom",
+			runReview:       func(ctx context.Context, prompt string) executor.Result { return r.custom.Run(ctx, prompt) },
+			buildPrompt:     r.buildCustomReviewPrompt,
 			buildEvalPrompt: r.buildCustomEvaluationPrompt,
-			showSummary:    r.showCustomSummary,
-			makeSection:    NewCustomIterationSection,
+			showSummary:     r.showCustomSummary,
+			makeSection:     NewCustomIterationSection,
 		})
 	}
 
 	// default: codex review
 	return r.runExternalReviewLoop(ctx, externalReviewConfig{
-		name:           "codex",
-		runReview:      r.codex.Run,
-		buildPrompt:    r.buildCodexPrompt,
+		name:            "codex",
+		runReview:       r.codex.Run,
+		buildPrompt:     r.buildCodexPrompt,
 		buildEvalPrompt: r.buildCodexEvaluationPrompt,
-		showSummary:    r.showCodexSummary,
-		makeSection:    NewCodexIterationSection,
+		showSummary:     r.showCodexSummary,
+		makeSection:     NewCodexIterationSection,
 	})
 }
 
 // externalReviewConfig holds callbacks for running an external review tool.
 type externalReviewConfig struct {
-	name           string                                                     // tool name for error messages
-	runReview      func(ctx context.Context, prompt string) executor.Result   // run the external review tool
-	buildPrompt    func(isFirst bool, claudeResponse string) string           // build prompt for review tool
-	buildEvalPrompt func(output string) string                                // build evaluation prompt for claude
-	showSummary    func(output string)                                        // display review findings summary
-	makeSection    func(iteration int) Section                                // create section header
+	name            string                                                   // tool name for error messages
+	runReview       func(ctx context.Context, prompt string) executor.Result // run the external review tool
+	buildPrompt     func(isFirst bool, claudeResponse string) string         // build prompt for review tool
+	buildEvalPrompt func(output string) string                               // build evaluation prompt for claude
+	showSummary     func(output string)                                      // display review findings summary
+	makeSection     func(iteration int) Section                              // create section header
 }
 
 // runExternalReviewLoop runs a generic external review tool-claude loop until no findings.
