@@ -340,7 +340,7 @@ func TestLogger_LogDiffStats(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	l, err := NewLogger(Config{Mode: "full", Branch: "test"}, testColors())
+	l, err := NewLogger(Config{Mode: "full", Branch: "test"}, testColors(), &status.PhaseHolder{})
 	require.NoError(t, err)
 	defer func() { _ = l.Close() }()
 
@@ -357,7 +357,7 @@ func TestLogger_LogDiffStats_ZeroFiles(t *testing.T) {
 	require.NoError(t, os.Chdir(tmpDir))
 	defer func() { _ = os.Chdir(origDir) }()
 
-	l, err := NewLogger(Config{Mode: "full", Branch: "test"}, testColors())
+	l, err := NewLogger(Config{Mode: "full", Branch: "test"}, testColors(), &status.PhaseHolder{})
 	require.NoError(t, err)
 	defer func() { _ = l.Close() }()
 
