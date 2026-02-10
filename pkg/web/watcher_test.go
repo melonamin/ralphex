@@ -381,7 +381,8 @@ Started: 2026-01-22 10:00:00
 			time.Sleep(200 * time.Millisecond)
 
 			// verify session was NOT discovered (skipped dir should not be watched)
-			session := sm.Get("skipped")
+			sessionID := sessionIDFromPath(progressFile)
+			session := sm.Get(sessionID)
 			assert.Nil(t, session, "%s directory should not be watched", tc.dir)
 		})
 	}

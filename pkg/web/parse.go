@@ -60,7 +60,8 @@ func parseProgressLine(line string, inHeader bool) (ParsedLine, bool) {
 	if matches := timestampRegex.FindStringSubmatch(line); matches != nil {
 		text := matches[2]
 
-		ts, err := time.Parse("06-01-02 15:04:05", matches[1])
+		// timestamps in progress logs are local time without a zone offset
+		ts, err := time.ParseInLocation("06-01-02 15:04:05", matches[1], time.Local)
 		if err != nil {
 			ts = time.Now()
 		}

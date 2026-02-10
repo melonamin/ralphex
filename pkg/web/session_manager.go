@@ -421,7 +421,8 @@ func ParseProgressHeader(path string) (SessionMetadata, error) {
 		} else if val, found := strings.CutPrefix(line, "Mode: "); found {
 			meta.Mode = val
 		} else if val, found := strings.CutPrefix(line, "Started: "); found {
-			t, err := time.Parse("2006-01-02 15:04:05", val)
+			// header timestamps are written in local time without a zone offset
+			t, err := time.ParseInLocation("2006-01-02 15:04:05", val, time.Local)
 			if err == nil {
 				meta.StartTime = t
 			}

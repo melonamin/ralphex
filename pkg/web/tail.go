@@ -349,14 +349,15 @@ func (t *Tailer) parseLineDeferred(line string) []Event {
 		return events
 	case ParsedLinePlain:
 		var events []Event
+		now := time.Now()
 		if t.pendingSection != "" {
-			events = append(events, t.emitPendingSection(time.Now())...)
+			events = append(events, t.emitPendingSection(now)...)
 		}
 		events = append(events, Event{
 			Type:      EventTypeOutput,
 			Phase:     t.phase,
 			Text:      parsed.Text,
-			Timestamp: time.Now(),
+			Timestamp: now,
 		})
 		return events
 	default:

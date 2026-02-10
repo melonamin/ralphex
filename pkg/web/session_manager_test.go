@@ -422,7 +422,7 @@ Started: 2026-01-22 10:30:00
 		assert.Equal(t, "docs/plans/my-plan.md", meta.PlanPath)
 		assert.Equal(t, "feature-branch", meta.Branch)
 		assert.Equal(t, "full", meta.Mode)
-		assert.Equal(t, time.Date(2026, 1, 22, 10, 30, 0, 0, time.UTC), meta.StartTime)
+		assert.Equal(t, time.Date(2026, 1, 22, 10, 30, 0, 0, time.Local), meta.StartTime)
 	})
 
 	t.Run("handles review-only mode", func(t *testing.T) {

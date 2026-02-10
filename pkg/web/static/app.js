@@ -323,11 +323,7 @@
         diffStatsEl.appendChild(addSpan);
         diffStatsEl.appendChild(slashSpan);
         diffStatsEl.appendChild(delSpan);
-        if (text) {
-            diffStatsEl.title = text;
-        } else {
-            diffStatsEl.removeAttribute('title');
-        }
+        diffStatsEl.title = text;
     }
 
     function parseDiffStatsText(text) {
@@ -559,8 +555,8 @@
         var startTime = state.sectionStartTimes[sectionId];
         if (!startTime) return;
 
-        // use provided endTimestamp, or Date.now() for live sessions, or lastEventTimestamp for historical
-        var endTime = endTimestamp || (isLiveSession() ? Date.now() : (state.lastEventTimestamp || Date.now()));
+        // use provided endTimestamp, or derive from session state
+        var endTime = endTimestamp || getElapsedEndTime();
         const duration = endTime - startTime;
         if (duration < 0) return; // guard against negative durations
 
@@ -635,22 +631,56 @@
         }
     }
 
-    // check if current session is live (active and events are recent)
+    function getSelectedSessionFromList() {
+        if (!state.currentSessionId || !state.sessions || state.sessions.length === 0) {
+            return state.currentSession;
+        }
+        for (var i = 0; i < state.sessions.length; i++) {
+            if (state.sessions[i].id === state.currentSessionId) {
+                return state.sessions[i];
+            }
+        }
+        return state.currentSession;
+    }
+
+    // check if current session is live (active or optimistic when state is unknown).
+    // does not check isTerminalState — callers decide terminal handling separately.
     function isLiveSession() {
-        if (state.isTerminalState) return false;
-        // check if we have recent events (within last 60 seconds)
-        if (state.lastEventTimestamp) {
-            var age = Date.now() - state.lastEventTimestamp;
-            return age < 60000; // consider live if last event was within 60s
+        var session = getSelectedSessionFromList();
+        // prefer session state when available
+        if (session && session.state) {
+            return session.state === 'active';
+        }
+        // fallback for single-session mode or before sessions load:
+        // consider live only if we have a start time and recent events
+        if (state.executionStartTime && state.lastEventTimestamp) {
+            return (Date.now() - state.lastEventTimestamp) < 60000;
         }
         return false;
+    }
+
+    function getElapsedEndTime() {
+        var session = getSelectedSessionFromList();
+        if (isLiveSession()) {
+            return Date.now();
+        }
+        if (state.lastEventTimestamp) {
+            return state.lastEventTimestamp;
+        }
+        if (session && session.lastModified) {
+            var lastModified = parseTimeMs(session.lastModified);
+            if (Number.isFinite(lastModified) && lastModified > 0) {
+                return lastModified;
+            }
+        }
+        return Date.now();
     }
 
     // update elapsed time display and current section duration
     function updateTimers() {
         if (!state.executionStartTime) return;
-        // for live sessions use Date.now(), for historical use lastEventTimestamp
-        var endTime = isLiveSession() ? Date.now() : (state.lastEventTimestamp || Date.now());
+        // optimistic for live sessions; otherwise use last known timestamp
+        var endTime = getElapsedEndTime();
         var elapsed = endTime - state.executionStartTime;
         elapsedTimeEl.textContent = formatDuration(elapsed);
 
@@ -661,11 +691,17 @@
         }
     }
 
+    function shouldRunElapsedTimer() {
+        return !state.isTerminalState && isLiveSession();
+    }
+
     // start elapsed time timer - clears any existing interval to prevent memory leaks on reconnect
     function startElapsedTimer() {
         if (state.elapsedTimerInterval) {
             clearInterval(state.elapsedTimerInterval);
+            state.elapsedTimerInterval = null;
         }
+        if (!shouldRunElapsedTimer()) return;
         state.elapsedTimerInterval = setInterval(updateTimers, 1000);
     }
 
@@ -748,7 +784,7 @@
         if (!state.executionStartTime || eventTimestamp < state.executionStartTime) {
             state.executionStartTime = eventTimestamp;
         }
-        if (state.executionStartTime && !state.elapsedTimerInterval && !state.isTerminalState) {
+        if (state.executionStartTime && !state.elapsedTimerInterval && shouldRunElapsedTimer()) {
             startElapsedTimer();
         }
 
@@ -1166,7 +1202,7 @@
         if (!state.executionStartTime || startMs < state.executionStartTime) {
             state.executionStartTime = startMs;
         }
-        if (state.executionStartTime && !state.elapsedTimerInterval && !state.isTerminalState) {
+        if (state.executionStartTime && !state.elapsedTimerInterval && shouldRunElapsedTimer()) {
             startElapsedTimer();
         }
         updateTimers();
